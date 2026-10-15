@@ -4,7 +4,7 @@ Open-source code for the paper.
 
 Scientific ideation requires unexpected associations, yet large language model agents often revisit familiar hypotheses as observations become scarce. LOIT preserves focused reasoning and encodes the question and observations as residual memory. During incubation, a separate Transformer stream processes off-task activities and evolves associative codes through memory-guided transitions and stochastic topic changes. Return attention integrates the final code into screened proposals, while a reinforcement learning controller selects incubation actions using predicted gain and cost.
 
-![Task-focused reasoning and LOIT](assets/overview.png)
+[![Task-focused reasoning and LOIT](assets/overview.png)](assets/overview.pdf)
 
 Task-focused reasoning and LOIT on DiscoveryWorld's Plant Nutrients Challenge.
 

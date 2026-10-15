@@ -15,6 +15,7 @@ video/
 *.safetensors
 *.jsonl
 *.pdf
+!assets/overview.pdf
 *.pptx
 *.tex
 *.bib
