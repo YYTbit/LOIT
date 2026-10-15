@@ -1,0 +1,15 @@
+backbone: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+device: cuda
+precision: bf16
+memory_slots: 4
+code_count: 8
+code_slots: 4
+attention_heads: 8
+layer_fractions: [0.25, 0.5, 0.75]
+topic_change: 0.24
+proposal_count: 4
+gate_threshold: null
+utility_margin: null
+batch_size: 1
+gradient_accumulation: 128
+epochs: 3

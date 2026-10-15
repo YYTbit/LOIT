@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loit"
+version = "1.0.0"
+description = "Learned Off-Task Incubation Transformer for scientific ideation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.6,<3", "numpy>=1.24,<3", "PyYAML>=6,<7"]
+
+[project.optional-dependencies]
+models = ["transformers==4.57.3", "accelerate>=1.5,<2", "lm-format-enforcer==0.11.3"]
+data = ["datasets>=3,<5"]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+loit = "loit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["loit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

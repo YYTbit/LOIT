@@ -1,0 +1,26 @@
+backbone: Qwen/Qwen3-8B
+device: cuda
+precision: bf16
+memory_slots: 4
+code_count: 8
+code_slots: 4
+attention_heads: 8
+layer_fractions: [0.25, 0.5, 0.75]
+categories: [brainstorming, generation, open_qa, summarization]
+durations: [2, 4, 6, 8, 12]
+couplings: [0, 0.25, 0.5, 0.75, 1]
+topic_change: 0.24
+proposal_count: 4
+context_tokens: 4096
+gate_threshold: null
+utility_margin: null
+learning_rate: 0.00003
+backbone_learning_rate: 0.00001
+weight_decay: 0.1
+adam_betas: [0.9, 0.95]
+gradient_clip: 1.0
+warmup_fraction: 0.03
+minimum_lr_ratio: 0.1
+batch_size: 1
+gradient_accumulation: 128
+epochs: 3

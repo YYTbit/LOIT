@@ -1,0 +1,10 @@
+{
+  "discoveryworld": {
+    "factory": "loit.benchmarks:NativeEnvironment",
+    "kwargs": {"benchmark": "discoveryworld", "timeout": 120}
+  },
+  "scienceworld": {
+    "factory": "loit.benchmarks:NativeEnvironment",
+    "kwargs": {"benchmark": "scienceworld", "timeout": 120}
+  }
+}
