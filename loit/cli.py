@@ -70,6 +70,12 @@ def main(argv=None):
             command.add_argument("--max-turns", type=int, default=32)
             command.add_argument("--position-budget", type=int, default=32768)
             command.add_argument("--training-rollouts", action="store_true")
+    active = commands.add_parser("propose-agentideabench")
+    common(active)
+    active.add_argument("--activities", required=True)
+    active.add_argument("--tasks", required=True)
+    active.add_argument("--output", required=True)
+    active.add_argument("--max-retrieval-calls", type=int, default=10)
     calibration = commands.add_parser("calibrate")
     common(calibration)
     calibration.add_argument("--gate-records", required=True)
@@ -87,6 +93,10 @@ def main(argv=None):
     labels.add_argument("--records", required=True)
     labels.add_argument("--labels", required=True)
     labels.add_argument("--output", required=True)
+    artifacts = commands.add_parser("summarize-active")
+    artifacts.add_argument("--predictions", required=True)
+    artifacts.add_argument("--runs", required=True)
+    artifacts.add_argument("--output", required=True)
     analysis = commands.add_parser("analyze")
     analysis.add_argument("--input", required=True)
     analysis.add_argument("--output", required=True)
@@ -128,6 +138,18 @@ def main(argv=None):
                                     values["transition_samples"], values["return_samples"], values.get("delta", 0.05))
         write_json(args.output, result)
         return
+    if args.command == "summarize-active":
+        from .artifacts import summarize_active
+        print(json.dumps(summarize_active(args.predictions, args.runs, args.output), allow_nan=False))
+        return
+    active_tasks = None
+    if args.command == "propose-agentideabench":
+        from .active import validate_active_tasks
+        if type(args.max_retrieval_calls) is not int or not 1 <= args.max_retrieval_calls <= 10:
+            raise ValueError("AgentIdeaBench retrieval budget must lie in [1, 10]")
+        active_tasks = validate_active_tasks(read_jsonl(args.tasks))
+        if not Path(args.activities).is_file():
+            raise FileNotFoundError(f"Activity pool not found: {args.activities}")
     language = language_from_args(args)
     if args.command == "train":
         from .training import train
@@ -137,6 +159,61 @@ def main(argv=None):
                 setattr(language.config, field, value)
         language.config.__post_init__()
         train(language, args.stage, args.records, args.output, args.seed)
+        return
+    if args.command == "propose-agentideabench":
+        from .active import API_BASE, SemanticScholarClient, run_active_subfield
+        from .records import identify_records
+        from .runtime import Incubator
+
+        incubator = Incubator(language, pool_from_args(args, language.config))
+        retrieval = SemanticScholarClient()
+        predictions, runs = [], []
+        for index, (task, state, subfield) in enumerate(active_tasks):
+            seed = args.seed + index
+            incubation = incubator.turn(state, seed)
+            result = run_active_subfield(language, subfield, retrieval,
+                                         seed, args.max_retrieval_calls, cache=incubation.cache)
+            run_id = f"{state.task_id}:{seed}"
+            result["processed_positions"] += incubation.event["processed_positions"]
+            runs.append({"active_run_id": run_id, "task_id": state.task_id,
+                         "benchmark": "agentideabench", "split": state.split,
+                         "seed": result["seed"], "subfield": subfield,
+                         "incubation": incubation.event,
+                         "incubation_positions": incubation.event["incubation_positions"],
+                         "retrieval_calls": result["retrieval_calls"],
+                         "retrieval_trace": result["retrieval_trace"],
+                         "retrieved_paper_ids": result["retrieved_paper_ids"],
+                         "processed_positions": result["processed_positions"],
+                         "backbone": language.config.backbone,
+                         "model_revision": getattr(getattr(language.model.backbone, "config", None),
+                                                   "_commit_hash", None)})
+            for candidate_index, hypothesis in enumerate(result["hypotheses"]):
+                predictions.append({"active_run_id": run_id, "task_id": state.task_id,
+                                    "benchmark": "agentideabench", "split": state.split,
+                                    "seed": result["seed"], "subfield": subfield,
+                                    "candidate_index": candidate_index, "candidate_count": 3,
+                                    "hypothesis": hypothesis, "answer": hypothesis,
+                                    "prediction": hypothesis})
+        predictions = identify_records(predictions)
+        runs = identify_records(runs)
+        output = Path(args.output)
+        trace_path = Path(str(output) + ".active_runs.jsonl")
+        write_jsonl(args.output, predictions)
+        write_jsonl(trace_path, runs)
+        manifest = {"protocol": "AgentIdeaBench Active", "subfields": len(runs),
+                    "hypotheses": len(predictions), "max_retrieval_calls": args.max_retrieval_calls,
+                    "observed_retrieval_calls": sum(row["retrieval_calls"] for row in runs),
+                    "processed_positions": sum(row["processed_positions"] for row in runs),
+                    "incubation_positions": sum(row["incubation_positions"] for row in runs),
+                    "retrieval_api": API_BASE, "backbone": language.config.backbone,
+                    "model_revision": getattr(getattr(language.model.backbone, "config", None),
+                                               "_commit_hash", None),
+                    "seed": args.seed,
+                    "task_file_sha256": hashlib.sha256(Path(args.tasks).read_bytes()).hexdigest(),
+                    "predictions_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                    "active_runs_sha256": hashlib.sha256(trace_path.read_bytes()).hexdigest()}
+        write_json(str(output) + ".manifest.json", manifest)
+        print(json.dumps(manifest, ensure_ascii=False))
         return
     if args.command == "calibrate":
         from .calibration import gate_threshold, utility_margin

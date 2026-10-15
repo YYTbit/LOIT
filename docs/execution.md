@@ -91,6 +91,23 @@ python -m loit score --benchmark liveideabench --predictions results/proposals.j
 
 The evaluator is supplied by the benchmark installation. Collection-level metrics receive the complete prediction collection. In particular, retain LiveIdeaBench's native fluency procedure. No benchmark-specific substitute metric is applied.
 
+AgentIdeaBench Active uses LOIT's selected incubation action before its retrieval loop. Supply the prepared activity pool and all 40 released Active-track evaluation subfields as records with `benchmark` set to `agentideabench`, an explicit `test` split, and a unique `task_id`. Each subfield receives one shared budget of at most ten `SEARCH` or `FETCH` calls and produces three hypothesis records. The command writes the incubation event, complete tool traces, returned paper identifiers, call counts, and total and incubation decoder-position counts to a `.active_runs.jsonl` sidecar. Set `SEMANTIC_SCHOLAR_API_KEY` when an API key is available.
+
+```bash
+python -m loit propose-agentideabench --config configs/qwen3_8b.yaml \
+  --checkpoint checkpoints/controller --calibration data/calibration.json \
+  --activities data/activities.jsonl \
+  --tasks data/agentideabench_active_test.jsonl --output results/agentideabench_active.jsonl
+```
+
+Summarize the generated collection and plot its observed retrieval-call distribution from the prediction and trace files. This reports execution accounting and leaves the native hypothesis metrics to the released scorer.
+
+```bash
+python -m loit summarize-active --predictions results/agentideabench_active.jsonl \
+  --runs results/agentideabench_active.jsonl.active_runs.jsonl \
+  --output results/agentideabench_active_artifacts
+```
+
 ## Transition analysis
 
 `analyze` reads `initial`, `transition`, `quality`, `duration`, `transition_samples`, `return_samples`, and optional `delta` from JSON. Transition rows require independent controlled samples, and terminal-code quality requires separate independently verified return samples. It reports the finite-horizon useful-proposal probability and the paper's conservative finite-sample interval.
