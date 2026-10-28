@@ -51,8 +51,12 @@ def contraction_bound(epsilon, duration):
 
 def escape_certificate(initial, transition, quality, duration, transition_samples, return_samples, delta=0.05):
     size = len(initial)
-    if min(transition_samples, return_samples) < 1 or not 0 < delta < 1:
-        raise ValueError("The certificate requires positive independent sample counts and confidence")
+    counts = (transition_samples, return_samples)
+    if any(isinstance(count, (bool, np.bool_)) or not math.isfinite(count)
+           or count < 1 or int(count) != count for count in counts):
+        raise ValueError("The certificate requires positive finite integer sample counts")
+    if not 0 < delta < 1:
+        raise ValueError("The certificate requires confidence in (0, 1)")
     estimate = useful_probability(initial, transition, quality, duration)
     row_error = min(2.0, size * math.sqrt(math.log(4 * size * size / delta) / (2 * transition_samples)))
     quality_error = min(1.0, math.sqrt(math.log(4 * size / delta) / (2 * return_samples)))

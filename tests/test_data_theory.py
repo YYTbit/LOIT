@@ -86,6 +86,20 @@ def test_reset_contraction_and_confidence_radius():
     assert 0 <= large["lower"] <= large["estimate"] <= large["upper"] <= 1
 
 
+@pytest.mark.parametrize("field", ["transition_samples", "return_samples"])
+@pytest.mark.parametrize("count", [0, -1, True, 1.5, float("nan"), float("inf")])
+def test_certificate_rejects_invalid_sample_counts(field, count):
+    counts = {"transition_samples": 100, "return_samples": 100}
+    counts[field] = count
+    with pytest.raises(ValueError, match="positive finite integer"):
+        escape_certificate([0.5, 0.5], [[0.8, 0.2], [0.2, 0.8]], [0.2, 0.8], 3, **counts)
+
+
+def test_certificate_accepts_finite_integer_valued_counts():
+    arguments = ([0.5, 0.5], [[0.8, 0.2], [0.2, 0.8]], [0.2, 0.8], 3)
+    assert escape_certificate(*arguments, 100.0, 100.0) == escape_certificate(*arguments, 100, 100)
+
+
 @pytest.mark.parametrize("values", [{"topic_change": -0.1}, {"couplings": [1.2]}, {"gate_threshold": 1.1}, {"gate_weights": [1, 1, 1, 1]}])
 def test_invalid_execution_settings_are_rejected(values):
     with pytest.raises(ValueError):
