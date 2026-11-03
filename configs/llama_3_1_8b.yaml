@@ -11,5 +11,5 @@ proposal_count: 4
 gate_threshold: null
 utility_margin: null
 batch_size: 1
-gradient_accumulation: 128
+global_batch_size: 128
 epochs: 3

@@ -4,10 +4,32 @@ import pytest
 import torch
 
 from loit.calibration import gate_threshold, utility_margin
+from loit.config import Config
 from loit.controller import admissible_actions, choose_action, ppo_loss
 from loit.data import ScientificState
 from loit.storage import load_language, save_checkpoint
 from loit.training import Objectives, episode_return, train
+
+
+@pytest.mark.parametrize("processes,steps", [(1, 128), (2, 64), (4, 32), (8, 16)])
+def test_global_batch_is_preserved_across_process_counts(processes, steps):
+    config = Config()
+    assert config.accumulation_steps(processes) == steps
+    assert config.batch_size * processes * steps == 128
+
+
+@pytest.mark.parametrize("processes", [0, 3, 256])
+def test_incompatible_global_batch_is_rejected(processes):
+    with pytest.raises(ValueError):
+        Config().accumulation_steps(processes)
+
+
+def test_legacy_single_process_batch_profile_remains_loadable(tmp_path):
+    path = tmp_path / "profile.yaml"
+    path.write_text("batch_size: 2\ngradient_accumulation: 64\n")
+    config = Config.load(path)
+    assert config.global_batch_size == 128
+    assert config.accumulation_steps(8) == 8
 
 
 def test_strict_margin_and_focus_tie(tiny):

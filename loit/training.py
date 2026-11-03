@@ -170,7 +170,7 @@ class Objectives(nn.Module):
 
 
 def train(language, stage, record_path, output, seed=0):
-    from accelerate import Accelerator
+    from accelerate import Accelerator, PartialState
     from .storage import save_checkpoint
     config = language.config
     torch.manual_seed(seed)
@@ -188,10 +188,13 @@ def train(language, stage, record_path, output, seed=0):
     optimizer = torch.optim.AdamW(parameters, lr=learning_rate, betas=tuple(config.adam_betas), weight_decay=config.weight_decay)
     loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True, collate_fn=list,
                         generator=torch.Generator().manual_seed(seed))
-    accelerator = Accelerator(gradient_accumulation_steps=config.gradient_accumulation,
+    # The paper specifies a global batch, while Accelerate accumulates per process.
+    cpu = torch.device(config.device).type == "cpu"
+    accumulation = config.accumulation_steps(PartialState(cpu=cpu).num_processes)
+    accelerator = Accelerator(cpu=cpu, gradient_accumulation_steps=accumulation,
                               mixed_precision=config.precision if torch.cuda.is_available() else "no")
     objective, optimizer, loader = accelerator.prepare(objective, optimizer, loader)
-    updates = max(1, math.ceil(len(loader) / config.gradient_accumulation) * config.epochs)
+    updates = max(1, math.ceil(len(loader) / accumulation) * config.epochs)
     warmup = int(updates * config.warmup_fraction)
     def rate(step):
         if step < warmup:

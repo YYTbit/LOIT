@@ -22,5 +22,5 @@ gradient_clip: 1.0
 warmup_fraction: 0.03
 minimum_lr_ratio: 0.1
 batch_size: 1
-gradient_accumulation: 128
+global_batch_size: 128
 epochs: 3

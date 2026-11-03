@@ -56,13 +56,13 @@ class Config:
     minimum_lr_ratio: float = 0.1
     epochs: int = 3
     batch_size: int = 1
-    gradient_accumulation: int = 128
+    global_batch_size: int = 128
     ppo_clip: float = 0.2
     entropy_weight: float = 0.01
     seed: int = 0
 
     def __post_init__(self):
-        for name in ["memory_slots", "code_count", "code_slots", "attention_heads", "proposal_count", "context_tokens", "activity_tokens", "proposal_tokens", "action_tokens", "gate_tokens", "batch_size", "gradient_accumulation", "epochs"]:
+        for name in ["memory_slots", "code_count", "code_slots", "attention_heads", "proposal_count", "context_tokens", "activity_tokens", "proposal_tokens", "action_tokens", "gate_tokens", "batch_size", "global_batch_size", "epochs"]:
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ValueError(f"{name} requires a positive integer")
         if not self.categories or len(set(self.categories)) != len(self.categories):
@@ -86,6 +86,14 @@ class Config:
         if not 0 < self.ppo_clip < 1 or self.entropy_weight < 0:
             raise ValueError("PPO clipping and entropy settings are invalid")
 
+    def accumulation_steps(self, processes=1):
+        if type(processes) is not int or processes < 1:
+            raise ValueError("The training process count requires a positive integer")
+        microbatch = self.batch_size * processes
+        if self.global_batch_size % microbatch:
+            raise ValueError("The global batch requires divisibility by batch_size times the process count")
+        return self.global_batch_size // microbatch
+
     @property
     def options(self):
         # Index zero preserves focused continuation and wins exact policy ties.
@@ -103,4 +111,9 @@ class Config:
 
     @classmethod
     def load(cls, path):
-        return cls(**yaml.safe_load(Path(path).read_text(encoding="utf-8")))
+        values = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        if "gradient_accumulation" in values:
+            if "global_batch_size" in values:
+                raise ValueError("Specify global_batch_size without the legacy accumulation field")
+            values["global_batch_size"] = values.pop("gradient_accumulation") * values.get("batch_size", 1)
+        return cls(**values)

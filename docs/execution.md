@@ -17,6 +17,8 @@ Structured proposals contain five text fields, `hypothesis`, `competing_explanat
 
 ## Training
 
+`global_batch_size` is shared across training processes. Accumulation steps are derived from this target, the per-process `batch_size`, and the process count.
+
 Each command saves a separate checkpoint. Start with scientific supervised fine-tuning in the README, then initialize the added modules.
 
 ```bash

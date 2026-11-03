@@ -32,7 +32,7 @@ def tiny():
                         memory_slots=2, durations=[1, 2], couplings=[0, 1], categories=["brainstorming"],
                         context_tokens=4096, activity_tokens=4, proposal_tokens=256, action_tokens=4,
                         gate_tokens=96, grammar=False, controller_hidden=8, gate_threshold=0.5,
-                        utility_margin=0.0, epochs=1, gradient_accumulation=1)
+                        utility_margin=0.0, epochs=1, global_batch_size=1)
         settings.update(overrides)
         torch.manual_seed(7)
         model = LOITModel(model_type(architecture), Config(**settings))
