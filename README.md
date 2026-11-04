@@ -75,8 +75,8 @@ python -m loit propose --config configs/qwen3_8b.yaml \
   --output results/proposals.jsonl
 ```
 
-Follow the [benchmark guide](docs/execution.md#benchmarks) for interactive runs
-and evaluation with the benchmark's scoring tools.
+Use the [environment guide](docs/execution.md#environment-integration) for
+interactive tasks and evaluation with the benchmark's scoring tools.
 
 ## Tests
 

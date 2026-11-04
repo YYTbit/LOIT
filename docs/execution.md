@@ -17,7 +17,7 @@ Structured proposals contain five text fields, `hypothesis`, `competing_explanat
 
 ## Training
 
-`global_batch_size` is shared across training processes. Accumulation steps are derived from this target, the per-process `batch_size`, and the process count.
+`global_batch_size` is shared across training processes. Accumulation steps are derived from this target, the per-process `batch_size`, and the process count. The training command accepts `--global-batch-size` and `--batch-size` overrides.
 
 Each command saves a separate checkpoint. Start with scientific supervised fine-tuning in the README, then initialize the added modules.
 
@@ -69,46 +69,36 @@ python -m loit calibrate --config configs/qwen3_8b.yaml \
 
 Gate records contain a development split, `gate_score`, and an independent binary `verified` label. The selected threshold maximizes confirmation rate subject to the requested acceptance floor. Paired development records use the utility-training schema. The margin is the requested empirical quantile of absolute utility errors. These are development estimates. Deployment admits focused continuation and incubation options with utility strictly above the selected margin, then selects the actor's highest-probability admissible option.
 
-## Benchmarks
+## Environment integration
 
-[DiscoveryWorld](https://github.com/allenai/discoveryworld) and [ScienceWorld](https://github.com/allenai/ScienceWorld) use native SDK sessions. Install their released dependencies in a compatible environment, including Java for ScienceWorld. The manifest in `configs/environments.json` selects each factory. Set `sdk_python` in factory arguments to use a separate SDK interpreter.
+Scientific tasks use the shared record format above. The paper evaluates [DiscoveryWorld](https://github.com/allenai/discoveryworld), [ScienceWorld](https://github.com/allenai/ScienceWorld), [TOMATO-Star](https://github.com/ZonglinY/MOOSE-Star), [LiveIdeaBench v2](https://github.com/x66ccff/liveideabench), and [AgentIdeaBench](https://github.com/HKUST-KnowComp/AgentIdeaBench). Prepare tasks and run their scoring tools according to the upstream instructions, retaining task identifiers, evaluation splits, and the required prediction collections.
 
-DiscoveryWorld task parameters contain `scenario`, `difficulty`, and `world_seed`. ScienceWorld parameters contain `task_name`, `variation`, and optional `simplification`. An interactive task also specifies `benchmark`, its explicit split, and the scientific question.
+For interactive execution, an environment factory implements `start(task, seed)` and returns a session with `initial_observation`, `tools`, `step(action)`, `score()`, and `close()`. A step returns an observation and a termination flag. The score comes from the environment's native evaluator. Oracle annotations stay outside agent-visible observations.
+
+The environment manifest maps task `benchmark` identifiers to importable factories and their arguments. For example, the bundled session example can be selected with
+
+```json
+{
+  "example": {
+    "factory": "examples.environment:ExampleEnvironment"
+  }
+}
+```
+
+[environment.py](../examples/environment.py) demonstrates the session contract with synthetic observations and no benchmark scoring. Configure the corresponding factory from your benchmark integration in `data/environments.json` and run
 
 ```bash
 python -m loit run --config configs/qwen3_8b.yaml \
   --checkpoint checkpoints/controller --calibration data/calibration.json \
   --tasks data/interactive_tasks.jsonl --activities data/activities.jsonl \
-  --environments configs/environments.json --output results/episodes.jsonl
+  --environments data/environments.json --output results/episodes.jsonl
 ```
 
-`--training-rollouts` collects stochastic controller actions on training tasks. PPO requires this sampling provenance. The output records complete episodes, native scores, and processed positions. Attach normalized scientific and independently verified idea rewards before controller training. `--position-budget` caps processed decoder positions, including initialization and screening. Budget exhaustion restores the saved scientific state when reintegration cannot complete. Oracle scorecards are excluded from agent observations.
+`CommandEnvironment` connects a JSONL worker in a separate SDK environment. Its factory arguments are `command`, an argument list, and optional `timeout`. Requests contain `method` and its arguments. `reset` receives `task` and `seed` and returns `observation` and `tools`; `step` receives `action` and returns `observation`, `done`, and optional updated `tools`; `score` returns `score`. Send diagnostics to stderr. The worker releases resources after stdin closes.
 
-For [TOMATO-Star](https://github.com/ZonglinY/MOOSE-Star), [LiveIdeaBench v2](https://github.com/x66ccff/liveideabench), and [AgentIdeaBench](https://github.com/HKUST-KnowComp/AgentIdeaBench), prepare questions using the released task definitions and generate answers with `propose`. Preserve the official task identifiers, required hypothesis counts, and complete evaluation collections. External evaluation is supplied as an importable `module:function` that accepts the prediction list and returns a dictionary of native metrics.
+`--training-rollouts` collects stochastic controller actions on training tasks. PPO requires this sampling provenance. Outputs retain complete episodes, native scores, and processed positions. Attach normalized scientific and independently verified idea rewards before controller training. `--position-budget` caps processed decoder positions, including initialization and screening. Budget exhaustion restores the saved scientific state when reintegration cannot complete.
 
-```bash
-python -m loit score --benchmark liveideabench --predictions results/proposals.jsonl \
-  --evaluator benchmark_interface:evaluate --output results/native_metrics.json
-```
-
-The evaluator is supplied by the benchmark installation. Collection-level metrics receive the complete prediction collection. In particular, retain LiveIdeaBench's native fluency procedure. No benchmark-specific substitute metric is applied.
-
-AgentIdeaBench Active uses LOIT's selected incubation action before its retrieval loop. Supply the prepared activity pool and all 40 released Active-track evaluation subfields as records with `benchmark` set to `agentideabench`, an explicit `test` split, and a unique `task_id`. Each subfield receives one shared budget of at most ten `SEARCH` or `FETCH` calls and produces three hypothesis records. The command writes the incubation event, complete tool traces, returned paper identifiers, call counts, and total and incubation decoder-position counts to a `.active_runs.jsonl` sidecar. Set `SEMANTIC_SCHOLAR_API_KEY` when an API key is available.
-
-```bash
-python -m loit propose-agentideabench --config configs/qwen3_8b.yaml \
-  --checkpoint checkpoints/controller --calibration data/calibration.json \
-  --activities data/activities.jsonl \
-  --tasks data/agentideabench_active_test.jsonl --output results/agentideabench_active.jsonl
-```
-
-Summarize the generated collection and plot its observed retrieval-call distribution from the prediction and trace files. This reports execution accounting and leaves the native hypothesis metrics to the released scorer.
-
-```bash
-python -m loit summarize-active --predictions results/agentideabench_active.jsonl \
-  --runs results/agentideabench_active.jsonl.active_runs.jsonl \
-  --output results/agentideabench_active_artifacts
-```
+For question-based tasks, `propose` generates answers from the same scientific records. Use the benchmark's official evaluator on the resulting prediction collection. The optional `score` command accepts an importable evaluation adapter through `--evaluator module:function`. This adapter connects the official scoring tools to the prediction-list format and returns a dictionary of finite native metrics. Collection-level metrics receive the complete collection, including LiveIdeaBench's fluency calculation.
 
 ## Transition analysis
 
