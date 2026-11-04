@@ -123,3 +123,22 @@ def test_generation_respects_decoder_position_budget(tiny):
     assert len(result.token_ids) <= 3
     with pytest.raises(ComputationBudgetExceeded):
         language.complete("A long prompt", 3, position_budget=1)
+
+
+@pytest.mark.parametrize("family", ["qwen3", "llama", "qwen2"])
+def test_generation_respects_native_end_token_set(tiny, monkeypatch, family):
+    language = tiny(family)
+    native_end = language.tokenizer.convert_tokens_to_ids("!")
+    assert native_end != language.tokenizer.eos_token_id
+    language.model.backbone.generation_config.eos_token_id = [language.tokenizer.eos_token_id, native_end]
+    forward = language.model.forward
+
+    def emit_end(*args, **kwargs):
+        result = forward(*args, **kwargs)
+        result.logits.fill_(-10000)
+        result.logits[..., native_end] = 10000
+        return result
+
+    monkeypatch.setattr(language.model, "forward", emit_end)
+    completion = language.complete("Finish the response", 4)
+    assert completion.token_ids == [native_end]

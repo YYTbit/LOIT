@@ -68,6 +68,8 @@ class LanguageModel:
 
     @torch.no_grad()
     def complete(self, prompt, max_tokens, seed=0, branch="focused", memory=None, code=None, coupling=0, cache=None, schema=None, position_budget=None):
+        from transformers.generation.stopping_criteria import EosTokenCriteria
+
         self.model.backbone.eval()
         if max_tokens < 1:
             raise ValueError("Generation requires a positive response budget")
@@ -91,8 +93,8 @@ class LanguageModel:
         grammar = self.grammar(schema)
         response, probability = [], 0.0
         processed = len(prefix) + latent
-        eos = self.tokenizer.eos_token_id
-        eos_ids = set(eos if isinstance(eos, list) else [eos])
+        eos = getattr(self.model.backbone.generation_config, "eos_token_id", None)
+        stopping = EosTokenCriteria(self.tokenizer.eos_token_id if eos is None else eos)
         for step in range(max_tokens):
             logits = logits.float() / self.config.temperature
             if grammar is not None:
@@ -106,9 +108,10 @@ class LanguageModel:
             token = int(torch.multinomial(log_probs.exp(), 1, generator=generator))
             response.append(token)
             probability += float(log_probs[token])
-            if token in eos_ids or step == max_tokens - 1:
+            next_token = self.tensor([token])
+            if stopping(next_token, None).item() or step == max_tokens - 1:
                 break
-            output = self.model(self.tensor([token]), branch, memory, code, coupling, values, use_cache=True)
+            output = self.model(next_token, branch, memory, code, coupling, values, use_cache=True)
             values, logits = output.past_key_values, output.logits[0, -1]
             processed += 1
         return Completion(self.tokenizer.decode(response, skip_special_tokens=True), prefix, response, probability, processed)
