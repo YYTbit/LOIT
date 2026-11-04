@@ -28,7 +28,7 @@ Use Python 3.10 or later and install PyTorch for your system.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[models,data,test]' \
+python -m pip install -e '.[models,data]' \
   --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 export HF_ENDPOINT=https://hf-mirror.com
 ```
@@ -77,12 +77,6 @@ python -m loit propose --config configs/qwen3_8b.yaml \
 
 Use the [environment guide](docs/execution.md#environment-integration) for
 interactive tasks and evaluation with the benchmark's scoring tools.
-
-## Tests
-
-```bash
-python -m pytest -q
-```
 
 ## License
 

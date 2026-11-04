@@ -23,3 +23,5 @@ video/
 *.zip
 .env
 .env.*
+/tests/
+/examples/environment.py

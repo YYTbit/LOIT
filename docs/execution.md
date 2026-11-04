@@ -75,17 +75,7 @@ Scientific tasks use the shared record format above. The paper evaluates [Discov
 
 For interactive execution, an environment factory implements `start(task, seed)` and returns a session with `initial_observation`, `tools`, `step(action)`, `score()`, and `close()`. A step returns an observation and a termination flag. The score comes from the environment's native evaluator. Oracle annotations stay outside agent-visible observations.
 
-The environment manifest maps task `benchmark` identifiers to importable factories and their arguments. For example, the bundled session example can be selected with
-
-```json
-{
-  "example": {
-    "factory": "examples.environment:ExampleEnvironment"
-  }
-}
-```
-
-[environment.py](../examples/environment.py) demonstrates the session contract with synthetic observations and no benchmark scoring. Configure the corresponding factory from your benchmark integration in `data/environments.json` and run
+The environment manifest maps task `benchmark` identifiers to importable factories and their arguments. Configure each benchmark factory in `data/environments.json` and run
 
 ```bash
 python -m loit run --config configs/qwen3_8b.yaml \
