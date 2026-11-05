@@ -36,13 +36,23 @@ At deployment, focused continuation and incubation actions with predicted utilit
 
 ## Results
 
+### Main Results
+
 **Table 1.** Main results on five public benchmarks, reported as mean ± standard deviation over five seeds. DW reports the released normalized score and SW the released normalized reward, both in percent, TS a 0–12 rubric, LIB v2 native fluency, and AIB the Active critic score.
 
 ![Main results from Table 1](assets/main_results.png)
 
-**LOIT improves both interactive discovery and scientific ideation.** Relative to focused SFT, ScienceWorld reward increases by 14.5, 14.1, and 14.8 points across the three backbones. The DiscoveryWorld normalized score improves by 9.0, 7.8, and 8.7 points. Gains also extend to the three proposal-generation benchmarks. These gains suggest that returned associations support hypothesis generation and subsequent experiment selection.
+### Ablation Study
 
-**The advantage persists across capacity and computation controls.** On Qwen3-8B, LOIT reaches 33.7 on ScienceWorld, compared with 22.2 for parameter matching, 24.3 for compute matching, 26.2 for prompt-only incubation, and 27.6 for best-of-N. The corresponding on-task dual-stream score is 29.0. These comparisons suggest that the learned interaction between off-task activity and scientific memory contributes beyond the gains from added capacity or additional focused samples.
+**Table 2.** Component ablations across three backbones, with mean ± standard deviation over five seeds. On-task computation and component removals are retrained; memory, transition, and policy interventions retain weights.
+
+![Component ablations from Table 2](assets/ablations.png)
+
+### Analysis
+
+![Analysis from Figure 2](assets/analysis.png)
+
+**Figure 2.** Finite-state analysis. (a) State mixing and its bound. (b) Proposal probability by memory coupling. (c) Step-specific sensitivity. (d) Proposal probability by topic-change rate.
 
 ## Getting Started
 
@@ -60,8 +70,9 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 ### Data Preparation
 
-Prepare the scientific tasks, training records, and independent verification labels
-following the [data and training guide](docs/execution.md). Build the off-task activity pool:
+Prepare the scientific tasks and verified training records under `data/` using the
+[record formats](docs/execution.md#scientific-records). The training commands below
+use a separate input file for each stage. Build the off-task activity pool:
 
 ```bash
 python -m loit prepare-activities --output data/activities.jsonl \
@@ -117,7 +128,6 @@ python -m loit run --config configs/qwen3_8b.yaml \
 
 Configure the interactive environments and apply the benchmark scoring tools
 following the [evaluation guide](docs/execution.md#environment-integration).
-Model profiles are in [configs/](configs).
 
 ## License
 
