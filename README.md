@@ -19,7 +19,19 @@ five benchmarks and three backbones, LOIT achieves the highest mean score in all
 DiscoveryWorld normalized score improves from 13.0% to 22.0%, and ScienceWorld
 reward from 19.2% to 33.7%.
 
+## Method
+
+Scientific ideation can stall when continued reasoning revisits familiar hypotheses. Inspired by cognitive incubation, LOIT temporarily shifts computation to unrelated activities while preserving scientific evidence. First, residual memory conditions the associative transitions. Next, return attention converts the terminal state into a testable proposal. Finally, a learned controller allocates incubation according to expected scientific gain and cost.
+
 [![Task-focused reasoning and LOIT](assets/overview.png)](assets/overview.pdf)
+
+**Figure 1.** Task-focused reasoning and LOIT on DiscoveryWorld’s Plant Nutrients Challenge. In seed 1, growth requires low titanium together with medium barium. The three observations challenge a single-factor explanation. A color-mixing instruction from Dolly 15k provides the off-task input. Memory cross-attention retains the scientific observations, the transition head updates an associative code, and return cross-attention carries this code into a proposal for separate and joint nutrient tests.
+
+## Main Results
+
+**Table 1.** Main results on five public benchmarks, reported as mean ± standard deviation over five seeds. DW reports the released normalized score and SW the released normalized reward, both in percent, TS a 0–12 rubric, LIB v2 native fluency, and AIB the Active critic score.
+
+![Main results from Table 1](assets/main_results.png)
 
 ## Installation
 
