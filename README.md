@@ -37,21 +37,9 @@ Scientific ideation can stall when continued reasoning revisits familiar hypothe
 
 ![Main results from Table 1](assets/main_results.png)
 
-### Ablation Study
+**LOIT improves both interactive discovery and scientific ideation.** Relative to focused SFT, ScienceWorld reward increases by 14.5, 14.1, and 14.8 points across the three backbones. The DiscoveryWorld normalized score improves by 9.0, 7.8, and 8.7 points. Gains also extend to the three proposal-generation benchmarks. These gains suggest that returned associations support hypothesis generation and subsequent experiment selection.
 
-**Table 2.** Component ablations across three backbones, with mean ± standard deviation over five seeds. On-task computation and component removals are retrained; memory, transition, and policy interventions retain weights.
-
-![Component ablations from Table 2](assets/ablations.png)
-
-**Memory, learned transitions, and reintegration contribute at distinct stages.** Shuffled memory replaces the question’s memory with an independent donor; randomized transitions sample from the code marginal. Removing topic changes sets their rate to zero during training, while removing return attention retrains the model without that connection. On Qwen3-8B, these variants score 27.7, 26.7, 29.5, and 25.8 on ScienceWorld, compared with 33.7 for LOIT. The retrained on-task variant reaches 29.0. These comparisons distinguish activity type from the stages that ground, develop, and return associations. The larger reduction after removing return attention highlights the role of reintegration in subsequent scientific decisions.
-
-### Analysis
-
-![Analysis from Figure 2](assets/analysis.png)
-
-**Figure 2.** Finite-state analysis. (a) State mixing and its bound. (b) Proposal probability by memory coupling. (c) Step-specific sensitivity. (d) Proposal probability by topic-change rate.
-
-**Mixing speed and useful-proposal mass capture different effects.** Panel (b) shows higher useful-proposal probability with stronger memory coupling, consistent with scientific evidence guiding associative transitions. Panel (d) shows lower useful-proposal probability with more frequent topic changes, despite the tighter mixing bound. Consequently, duration and topic changes balance state exploration with the scientific value of the resulting distribution.
+**MOOSE-Star remains competitive on hypothesis composition.** MOOSE-Star reaches 5.13 on TOMATO-Star with Qwen3-8B and DeepSeek, compared with LOIT’s 5.41 and 5.39. Its performance on hypothesis composition is consistent with its scientific training objective. LOIT also improves the interactive scores, where a proposal guides evidence collection over subsequent actions. The comparison therefore highlights the role of connecting associative exploration to executable tests across task formats.
 
 ## Getting Started
 
