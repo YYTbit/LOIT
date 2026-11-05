@@ -19,21 +19,34 @@ five benchmarks and three backbones, LOIT achieves the highest mean score in all
 DiscoveryWorld normalized score improves from 13.0% to 22.0%, and ScienceWorld
 reward from 19.2% to 33.7%.
 
-## Method
+## Algorithm Flow
 
-Scientific ideation can stall when continued reasoning revisits familiar hypotheses. Inspired by cognitive incubation, LOIT temporarily shifts computation to unrelated activities while preserving scientific evidence. First, residual memory conditions the associative transitions. Next, return attention converts the terminal state into a testable proposal. Finally, a learned controller allocates incubation according to expected scientific gain and cost.
+At deployment, focused continuation and incubation actions with predicted utility above a nonnegative validation-selected margin are admissible. The actor selects its highest-probability admissible action, with ties favoring focused continuation.
+
+1. Construct residual memory and the controller input; select an admissible action.
+2. If focused continuation is selected, return focused continuation.
+3. Read the incubation duration, memory coupling, and activity category from the selected action; sample the initial associative code.
+4. At each transition, draw an off-task activity, generate its response and the next code, and release the activity-local cache.
+5. Restore the scientific state and focused cache; generate proposals from the terminal code.
+6. Append the best admissible proposal and rebuild the cache; otherwise retain the saved focused state.
 
 [![Task-focused reasoning and LOIT](assets/overview.png)](assets/overview.pdf)
 
 **Figure 1.** Task-focused reasoning and LOIT on DiscoveryWorld’s Plant Nutrients Challenge. In seed 1, growth requires low titanium together with medium barium. The three observations challenge a single-factor explanation. A color-mixing instruction from Dolly 15k provides the off-task input. Memory cross-attention retains the scientific observations, the transition head updates an associative code, and return cross-attention carries this code into a proposal for separate and joint nutrient tests.
 
-## Main Results
+## Results
 
 **Table 1.** Main results on five public benchmarks, reported as mean ± standard deviation over five seeds. DW reports the released normalized score and SW the released normalized reward, both in percent, TS a 0–12 rubric, LIB v2 native fluency, and AIB the Active critic score.
 
 ![Main results from Table 1](assets/main_results.png)
 
-## Installation
+**LOIT improves both interactive discovery and scientific ideation.** Relative to focused SFT, ScienceWorld reward increases by 14.5, 14.1, and 14.8 points across the three backbones. The DiscoveryWorld normalized score improves by 9.0, 7.8, and 8.7 points. Gains also extend to the three proposal-generation benchmarks. These gains suggest that returned associations support hypothesis generation and subsequent experiment selection.
+
+**The advantage persists across capacity and computation controls.** On Qwen3-8B, LOIT reaches 33.7 on ScienceWorld, compared with 22.2 for parameter matching, 24.3 for compute matching, 26.2 for prompt-only incubation, and 27.6 for best-of-N. The corresponding on-task dual-stream score is 29.0. These comparisons suggest that the learned interaction between off-task activity and scientific memory contributes beyond the gains from added capacity or additional focused samples.
+
+## Getting Started
+
+### Environment Setup
 
 Use Python 3.10 or later and install PyTorch for your system.
 
@@ -45,32 +58,42 @@ python -m pip install -e '.[models,data]' \
 export HF_ENDPOINT=https://hf-mirror.com
 ```
 
-## Data preparation
+### Data Preparation
 
-Prepare the scientific tasks and training labels using the
-[data guide](docs/execution.md#scientific-records). Build the off-task activity pool:
+Prepare the scientific tasks, training records, and independent verification labels
+following the [data and training guide](docs/execution.md). Build the off-task activity pool:
 
 ```bash
 python -m loit prepare-activities --output data/activities.jsonl \
   --manifest data/activities_manifest.json
 ```
 
-## Training
+### Training and Evaluation
 
-Train the focused model first:
+Train the focused model, initialize the added modules, and continue through
+association, return, utility, and controller training:
 
 ```bash
 python -m loit train --config configs/qwen3_8b.yaml --stage focused \
   --records data/scientific_training.jsonl --output checkpoints/focused
+
+python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/focused \
+  --stage initialize --records data/initialization.jsonl --output checkpoints/initialized
+
+python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/initialized \
+  --stage association --records data/verified_associations.jsonl --output checkpoints/association
+
+python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/association \
+  --stage return --records data/verified_returns.jsonl --output checkpoints/return
+
+python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/return \
+  --stage utility --records data/paired_training.jsonl --output checkpoints/utility
+
+python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/utility \
+  --stage controller --records data/verified_episodes.jsonl --output checkpoints/controller
 ```
 
-Continue with the remaining stages in the [training guide](docs/execution.md#training).
-The final controller checkpoint is used for calibration and inference below.
-Model profiles are in [configs/](configs).
-
-## Inference and evaluation
-
-Calibrate the proposal thresholds on development records:
+Calibrate proposal thresholds on development records:
 
 ```bash
 python -m loit calibrate --config configs/qwen3_8b.yaml \
@@ -78,17 +101,23 @@ python -m loit calibrate --config configs/qwen3_8b.yaml \
   --paired-records data/paired_development.jsonl --output data/calibration.json
 ```
 
-Generate proposals for the scientific tasks:
+Generate proposals and run interactive tasks with the trained controller:
 
 ```bash
 python -m loit propose --config configs/qwen3_8b.yaml \
   --checkpoint checkpoints/controller --calibration data/calibration.json \
   --tasks data/tasks.jsonl --activities data/activities.jsonl \
   --output results/proposals.jsonl
+
+python -m loit run --config configs/qwen3_8b.yaml \
+  --checkpoint checkpoints/controller --calibration data/calibration.json \
+  --tasks data/interactive_tasks.jsonl --activities data/activities.jsonl \
+  --environments data/environments.json --output results/episodes.jsonl
 ```
 
-Use the [environment guide](docs/execution.md#environment-integration) for
-interactive tasks and evaluation with the benchmark's scoring tools.
+Configure the interactive environments and apply the benchmark scoring tools
+following the [evaluation guide](docs/execution.md#environment-integration).
+Model profiles are in [configs/](configs).
 
 ## License
 
