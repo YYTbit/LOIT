@@ -21,18 +21,13 @@ reward from 19.2% to 33.7%.
 
 ## Algorithm Flow
 
-At deployment, focused continuation and incubation actions with predicted utility above a nonnegative validation-selected margin are admissible. The actor selects its highest-probability admissible action, with ties favoring focused continuation.
-
-1. Construct residual memory and the controller input; select an admissible action.
-2. If focused continuation is selected, return focused continuation.
-3. Read the incubation duration, memory coupling, and activity category from the selected action; sample the initial associative code.
-4. At each transition, draw an off-task activity, generate its response and the next code, and release the activity-local cache.
-5. Restore the scientific state and focused cache; generate proposals from the terminal code.
-6. Append the best admissible proposal and rebuild the cache; otherwise retain the saved focused state.
+Scientific ideation can stall when continued reasoning revisits familiar hypotheses. Inspired by cognitive incubation, LOIT temporarily shifts computation to unrelated activities while preserving scientific evidence.
 
 [![Task-focused reasoning and LOIT](assets/overview.png)](assets/overview.pdf)
 
 **Figure 1.** Task-focused reasoning and LOIT on DiscoveryWorld’s Plant Nutrients Challenge. In seed 1, growth requires low titanium together with medium barium. The three observations challenge a single-factor explanation. A color-mixing instruction from Dolly 15k provides the off-task input. Memory cross-attention retains the scientific observations, the transition head updates an associative code, and return cross-attention carries this code into a proposal for separate and joint nutrient tests.
+
+![Algorithm 1](assets/algorithm.png)
 
 ## Results
 
@@ -48,24 +43,24 @@ At deployment, focused continuation and incubation actions with predicted utilit
 
 ![Component ablations from Table 2](assets/ablations.png)
 
+**Memory, learned transitions, and reintegration contribute at distinct stages.** Shuffled memory replaces the question’s memory with an independent donor; randomized transitions sample from the code marginal. Removing topic changes sets their rate to zero during training, while removing return attention retrains the model without that connection. On Qwen3-8B, these variants score 27.7, 26.7, 29.5, and 25.8 on ScienceWorld, compared with 33.7 for LOIT. The retrained on-task variant reaches 29.0. These comparisons distinguish activity type from the stages that ground, develop, and return associations. The larger reduction after removing return attention highlights the role of reintegration in subsequent scientific decisions.
+
 ### Analysis
 
 ![Analysis from Figure 2](assets/analysis.png)
 
 **Figure 2.** Finite-state analysis. (a) State mixing and its bound. (b) Proposal probability by memory coupling. (c) Step-specific sensitivity. (d) Proposal probability by topic-change rate.
 
+**Mixing speed and useful-proposal mass capture different effects.** Panel (b) shows higher useful-proposal probability with stronger memory coupling, consistent with scientific evidence guiding associative transitions. Panel (d) shows lower useful-proposal probability with more frequent topic changes, despite the tighter mixing bound. Consequently, duration and topic changes balance state exploration with the scientific value of the resulting distribution.
+
 ## Getting Started
 
 ### Environment Setup
 
-Use Python 3.10 or later and install PyTorch for your system.
-
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[models,data]' \
-  --index-url https://pypi.tuna.tsinghua.edu.cn/simple
-export HF_ENDPOINT=https://hf-mirror.com
+conda create -n loit python=3.10 -y
+conda activate loit
+pip install -e '.[models,data]'
 ```
 
 ### Data Preparation
@@ -79,7 +74,7 @@ python -m loit prepare-activities --output data/activities.jsonl \
   --manifest data/activities_manifest.json
 ```
 
-### Training and Evaluation
+## Training
 
 Train the focused model, initialize the added modules, and continue through
 association, return, utility, and controller training:
@@ -103,6 +98,8 @@ python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/ret
 python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/utility \
   --stage controller --records data/verified_episodes.jsonl --output checkpoints/controller
 ```
+
+## Evaluation
 
 Calibrate proposal thresholds on development records:
 
