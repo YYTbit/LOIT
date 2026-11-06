@@ -54,7 +54,7 @@ class Incubator:
         return response
 
     def _screen(self, state, text, seed, costs):
-        record = {"text": text, "valid": False, "gate_score": None, "verified_reward": None}
+        record = {"text": text, "valid": False, "gate_score": None, "verified_reward": None, "gate_seed": seed}
         try:
             candidate = Proposal(**json.loads(text))
         except (ValueError, TypeError):
@@ -93,9 +93,10 @@ class Incubator:
         memory, memory_tokens = self.language.memory(state)
         costs.add("memory", memory_tokens)
         summary = self.model.controller_state(memory, state.features())
-        selected, actor_log_probability, mask = choose_action(self.model, summary, training, rng.getrandbits(63), option_index)
+        actor_seed = rng.getrandbits(63)
+        selected, actor_log_probability, mask = choose_action(self.model, summary, training, actor_seed, option_index)
         option = self.config.options[selected]
-        event = {"state": state.to_dict(), "seed": seed, "summary": summary[0].cpu().tolist(),
+        event = {"state": state.to_dict(), "seed": seed, "actor_seed": actor_seed, "summary": summary[0].cpu().tolist(),
                  "option_index": selected, "option": asdict(option), "actor_log_probability": actor_log_probability,
                  "forced_option": option_index is not None,
                  "action_selection": "forced" if option_index is not None else "sampled" if training else "argmax",
@@ -145,9 +146,11 @@ class Incubator:
         event["completed_incubation"] = True
         for attempt in range(self.config.proposal_count):
             try:
-                response = self._complete(costs, "return", prompts.proposal(), self.config.proposal_tokens, rng.getrandbits(63),
+                return_seed = rng.getrandbits(63)
+                response = self._complete(costs, "return", prompts.proposal(), self.config.proposal_tokens, return_seed,
                                          "return", code=code, cache=cache, schema=prompts.PROPOSAL_SCHEMA)
                 record = self._screen(state, response.text, rng.getrandbits(63), costs)
+                record["return_seed"] = return_seed
                 event["proposals"].append(record)
                 if record.get("budget_exhausted"):
                     event["budget_exhausted"] = True
@@ -197,7 +200,8 @@ def run_episode(incubator, environment, task, seed=0, max_turns=32, position_bud
             if total >= position_budget:
                 events.append(event)
                 break
-            action = incubator.language.complete("", incubator.config.action_tokens, rng.getrandbits(63), cache=result.cache,
+            action_seed = rng.getrandbits(63)
+            action = incubator.language.complete("", incubator.config.action_tokens, action_seed, cache=result.cache,
                                                  position_budget=position_budget - total)
             total += action.processed_tokens
             observation, done = session.step(action.text)
@@ -206,6 +210,7 @@ def run_episode(incubator, environment, task, seed=0, max_turns=32, position_bud
             state.tools = getattr(session, "tools", state.tools)
             event["action"], event["observation"] = action.text, observation
             event["action_positions"] = action.processed_tokens
+            event["action_seed"] = action_seed
             events.append(event)
             if done:
                 break

@@ -100,7 +100,7 @@ def collect(language, args):
             result = incubator.turn(state, seed, option_index=args.option_index)
             answer = language.complete("", language.config.action_tokens, seed + 1, cache=result.cache)
             record = {"task_id": state.task_id, "benchmark": task.get("benchmark"), "split": state.split,
-                      "seed": seed, "answer": answer.text, "incubation": result.event,
+                      "seed": seed, "answer_seed": seed + 1, "answer": answer.text, "incubation": result.event,
                       "processed_positions": result.event["processed_positions"] + answer.processed_tokens}
         run.commit(index, record)
     run.finish()

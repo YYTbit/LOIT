@@ -108,6 +108,9 @@ python -m loit run --config "configs/${MODEL}.yaml" \
 
 `CommandEnvironment` connects a JSONL worker in a separate SDK environment. Its factory arguments are `command`, an argument list, and optional `timeout`. Requests contain `method` and its arguments. `reset` receives `task` and `seed` and returns `observation` and `tools`; `step` receives `action` and returns `observation`, `done`, and optional updated `tools`; `score` returns `score`. Send diagnostics to stderr. The worker releases resources after stdin closes.
 
+The request timeout covers transmission and receipt of a complete JSON line.
+Close a session after a transport failure before starting another session.
+
 `--training-rollouts` collects stochastic controller actions on training tasks. PPO requires this sampling provenance. Outputs retain complete episodes, native scores, and processed positions. Attach normalized scientific and independently verified idea rewards before controller training. `--position-budget` caps processed decoder positions, including initialization and screening. Budget exhaustion restores the saved scientific state when reintegration cannot complete.
 
 Collection commands save completed task records incrementally. Add `--resume` to
@@ -115,6 +118,9 @@ continue with the same task and activity files, model, calibration, seed, and
 execution settings. Each collection uses one process per output file. The
 associated state file records the committed task prefix, allowing an interrupted
 final write to be recovered without duplicating committed predictions.
+
+Records retain the controller, activity, return, screening, and scientific-action
+sampling seeds. The event seed initializes the code-transition generator.
 
 For question-based tasks, `propose` generates answers from the same scientific records. Use the benchmark's official evaluator on the resulting prediction collection. The optional `score` command accepts an importable evaluation adapter through `--evaluator module:function`. This adapter connects the official scoring tools to the prediction-list format and returns a dictionary of finite native metrics. Collection-level metrics receive the complete collection, including LiveIdeaBench's fluency calculation.
 

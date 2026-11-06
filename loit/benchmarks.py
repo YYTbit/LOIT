@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import selectors
 import subprocess
+import time
 
 
 def resolve(specification):
@@ -34,7 +35,11 @@ class CommandSession:
         package_root = str(Path(__file__).resolve().parent.parent)
         environment["PYTHONPATH"] = package_root + os.pathsep + environment.get("PYTHONPATH", "")
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=None, text=True, bufsize=1, env=environment)
+                                        stderr=None, bufsize=0, env=environment)
+        os.set_blocking(self.process.stdin.fileno(), False)
+        os.set_blocking(self.process.stdout.fileno(), False)
+        self._pending = bytearray()
+        self._failed = False
         try:
             reply = self.request("reset", task=task, seed=seed)
             self.initial_observation, self.tools = reply["observation"], reply.get("tools", [])
@@ -43,16 +48,47 @@ class CommandSession:
             raise
 
     def request(self, method, **values):
-        self.process.stdin.write(json.dumps({"method": method, **values}) + "\n")
-        self.process.stdin.flush()
-        with selectors.DefaultSelector() as selector:
-            selector.register(self.process.stdout, selectors.EVENT_READ)
-            if not selector.select(self.timeout):
-                raise TimeoutError("The scientific benchmark interface timed out")
-        line = self.process.stdout.readline()
-        if not line:
-            raise RuntimeError("The scientific benchmark interface terminated")
-        reply = json.loads(line)
+        if self._failed:
+            raise RuntimeError("The scientific benchmark interface is unavailable")
+        try:
+            deadline = time.monotonic() + self.timeout
+            outgoing = memoryview((json.dumps({"method": method, **values}, allow_nan=False) + "\n").encode("utf-8"))
+            with selectors.DefaultSelector() as selector:
+                selector.register(self.process.stdin, selectors.EVENT_WRITE)
+                selector.register(self.process.stdout, selectors.EVENT_READ)
+                # Readiness covers available bytes, so retain partial lines under the same deadline.
+                while outgoing or b"\n" not in self._pending:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("The scientific benchmark interface timed out")
+                    events = selector.select(remaining)
+                    if not events:
+                        raise TimeoutError("The scientific benchmark interface timed out")
+                    for key, _ in events:
+                        try:
+                            if key.fileobj is self.process.stdin:
+                                written = os.write(key.fd, outgoing[:65536])
+                                outgoing = outgoing[written:]
+                                if not outgoing:
+                                    selector.unregister(self.process.stdin)
+                            else:
+                                content = os.read(key.fd, 65536)
+                                if not content:
+                                    raise RuntimeError("The scientific benchmark interface terminated before a complete reply")
+                                self._pending.extend(content)
+                        except BlockingIOError:
+                            continue
+            line, _, remaining = self._pending.partition(b"\n")
+            self._pending = bytearray(remaining)
+            try:
+                reply = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError) as error:
+                raise RuntimeError("The scientific benchmark interface returned invalid JSON") from error
+            if not isinstance(reply, dict):
+                raise RuntimeError("The scientific benchmark interface requires a JSON object")
+        except BaseException:
+            self._failed = True
+            raise
         if "error" in reply:
             raise RuntimeError(reply["error"])
         return reply
@@ -66,6 +102,7 @@ class CommandSession:
         return self.request("score")["score"]
 
     def close(self):
+        self._failed = True
         if self.process.poll() is None:
             # EOF lets an external worker release its native resources.
             self.process.stdin.close()
