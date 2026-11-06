@@ -17,30 +17,48 @@ Structured proposals contain five text fields, `hypothesis`, `competing_explanat
 
 ## Training
 
+Set `MODEL` to `qwen3_8b`, `llama_3_1_8b`, or `deepseek_r1_qwen_7b` as in the
+README. Each configuration selects its actual backbone. Keep model-dependent
+trajectories, summaries, labels, calibration, and checkpoints in separate model
+directories.
+
 `global_batch_size` is shared across training processes. Accumulation steps are derived from this target, the per-process `batch_size`, and the process count. The training command accepts `--global-batch-size` and `--batch-size` overrides.
 
 Each command saves a separate checkpoint. Start with scientific supervised fine-tuning in the README, then initialize the added modules.
 
 ```bash
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/focused \
-  --stage initialize --records data/initialization.jsonl --output checkpoints/initialized
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/focused" \
+  --stage initialize --records "data/${MODEL}/initialization.jsonl" --output "checkpoints/${MODEL}/initialized"
 
-python -m loit collect-associations --config configs/qwen3_8b.yaml \
-  --checkpoint checkpoints/initialized --tasks data/training_states.jsonl \
-  --activities data/activities.jsonl --output data/association_rollouts.jsonl
+python -m loit collect-associations --config "configs/${MODEL}.yaml" \
+  --checkpoint "checkpoints/${MODEL}/initialized" --tasks data/training_states.jsonl \
+  --activities data/activities.jsonl --output "data/${MODEL}/association_rollouts.jsonl"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/initialized \
-  --stage association --records data/verified_associations.jsonl --output checkpoints/association
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/initialized" \
+  --stage association --records "data/${MODEL}/verified_associations.jsonl" --output "checkpoints/${MODEL}/association"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/association \
-  --stage return --records data/verified_returns.jsonl --output checkpoints/return
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/association" \
+  --stage return --records "data/${MODEL}/verified_returns.jsonl" --output "checkpoints/${MODEL}/return"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/return \
-  --stage utility --records data/paired_training.jsonl --output checkpoints/utility
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/return" \
+  --stage utility --records "data/${MODEL}/paired_training.jsonl" --output "checkpoints/${MODEL}/utility"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/utility \
-  --stage controller --records data/verified_episodes.jsonl --output checkpoints/controller
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/utility" \
+  --stage controller --records "data/${MODEL}/verified_episodes.jsonl" --output "checkpoints/${MODEL}/controller"
 ```
+
+Training retains fp32 master parameters and uses native bfloat16 autocasting on
+CUDA. The selected configuration supplies each stage's optimization settings;
+the input checkpoint supplies its learned weights and requires a matching model
+architecture. Model revisions, tokenizer files, and the native generation
+configuration are retained with each exported checkpoint.
+
+Add `--resume` to the same training command to restore the model, optimizer,
+scheduler, random generators, and data position through Accelerate. Resumption
+requires the same training records, stage, configuration, source checkpoint, and
+process count. `--save-steps` sets the optimizer-step interval between saved
+states; epoch boundaries also save a state. Completed training outputs remain
+available as the input checkpoint for the next stage.
 
 All optimization records require `split` set to `train`. Scientific supervision uses `state` and `response`. Initialization records contain `state`, with optional `activity`, `activity_response`, and independently verified `proposal` supervision. Verified return targets retain the corresponding `terminal_code`. Return supervision requires `state`, `terminal_code`, `proposal`, and `verified` set to `true`.
 
@@ -49,8 +67,8 @@ Association collection records each sampled response, proposed code, topic-chang
 Every collected output has a stable `record_id`. Independent label files retain that identifier and the same explicit split. Merge labels without changing trajectories using the following command. Controller labels contain `scientific_reward` and `idea_reward` and use `--stage controller`.
 
 ```bash
-python -m loit attach-labels --stage association --records data/association_rollouts.jsonl \
-  --labels data/independent_feedback.jsonl --output data/verified_associations.jsonl
+python -m loit attach-labels --stage association --records "data/${MODEL}/association_rollouts.jsonl" \
+  --labels "data/${MODEL}/independent_feedback.jsonl" --output "data/${MODEL}/verified_associations.jsonl"
 ```
 
 Paired utility records contain `state_id`, `summary`, `option_index`, `incubation_return`, `focused_return`, and nonnegative `added_cost`. Match scientific states and continuation conditions. The summary is the recorded controller input. Returns combine normalized scientific progress and independently verified proposal quality, before the computation penalty. Added cost is measured in processed decoder positions divided by `cost_scale`.
@@ -62,12 +80,16 @@ The configuration provides AdamW, cosine scheduling, gradient accumulation, and 
 ## Development calibration
 
 ```bash
-python -m loit calibrate --config configs/qwen3_8b.yaml \
-  --checkpoint checkpoints/controller --gate-records data/gate_development.jsonl \
-  --paired-records data/paired_development.jsonl --output data/calibration.json
+python -m loit calibrate --config "configs/${MODEL}.yaml" \
+  --checkpoint "checkpoints/${MODEL}/controller" --gate-records "data/${MODEL}/gate_development.jsonl" \
+  --paired-records "data/${MODEL}/paired_development.jsonl" --output "data/${MODEL}/calibration.json"
 ```
 
 Gate records contain a development split, `gate_score`, and an independent binary `verified` label. The selected threshold maximizes confirmation rate subject to the requested acceptance floor. Paired development records use the utility-training schema. The margin is the requested empirical quantile of absolute utility errors. These are development estimates. Deployment admits focused continuation and incubation options with utility strictly above the selected margin, then selects the actor's highest-probability admissible option.
+
+Calibration is associated with the checkpoint and the proposal, gate, and utility
+settings used to fit it. Generate a calibration file for the final controller
+checkpoint before deployment.
 
 ## Environment integration
 
@@ -78,15 +100,21 @@ For interactive execution, an environment factory implements `start(task, seed)`
 The environment manifest maps task `benchmark` identifiers to importable factories and their arguments. Configure each benchmark factory in `data/environments.json` and run
 
 ```bash
-python -m loit run --config configs/qwen3_8b.yaml \
-  --checkpoint checkpoints/controller --calibration data/calibration.json \
+python -m loit run --config "configs/${MODEL}.yaml" \
+  --checkpoint "checkpoints/${MODEL}/controller" --calibration "data/${MODEL}/calibration.json" \
   --tasks data/interactive_tasks.jsonl --activities data/activities.jsonl \
-  --environments data/environments.json --output results/episodes.jsonl
+  --environments data/environments.json --output "results/${MODEL}/episodes.jsonl"
 ```
 
 `CommandEnvironment` connects a JSONL worker in a separate SDK environment. Its factory arguments are `command`, an argument list, and optional `timeout`. Requests contain `method` and its arguments. `reset` receives `task` and `seed` and returns `observation` and `tools`; `step` receives `action` and returns `observation`, `done`, and optional updated `tools`; `score` returns `score`. Send diagnostics to stderr. The worker releases resources after stdin closes.
 
 `--training-rollouts` collects stochastic controller actions on training tasks. PPO requires this sampling provenance. Outputs retain complete episodes, native scores, and processed positions. Attach normalized scientific and independently verified idea rewards before controller training. `--position-budget` caps processed decoder positions, including initialization and screening. Budget exhaustion restores the saved scientific state when reintegration cannot complete.
+
+Collection commands save completed task records incrementally. Add `--resume` to
+continue with the same task and activity files, model, calibration, seed, and
+execution settings. Each collection uses one process per output file. The
+associated state file records the committed task prefix, allowing an interrupted
+final write to be recovered without duplicating committed predictions.
 
 For question-based tasks, `propose` generates answers from the same scientific records. Use the benchmark's official evaluator on the resulting prediction collection. The optional `score` command accepts an importable evaluation adapter through `--evaluator module:function`. This adapter connects the official scoring tools to the prediction-list format and returns a dictionary of finite native metrics. Collection-level metrics receive the complete collection, including LiveIdeaBench's fluency calculation.
 

@@ -16,6 +16,7 @@ class Option:
 @dataclass
 class Config:
     backbone: str = "Qwen/Qwen3-8B"
+    revision: str | None = None
     device: str = "cpu"
     precision: str = "bf16"
     memory_slots: int = 4
@@ -62,6 +63,10 @@ class Config:
     seed: int = 0
 
     def __post_init__(self):
+        if self.precision not in ["no", "fp16", "bf16"]:
+            raise ValueError("Precision requires no, fp16, or bf16")
+        if type(self.seed) is not int or not 0 <= self.seed < 2 ** 32:
+            raise ValueError("The run seed requires an integer in [0, 2**32)")
         for name in ["memory_slots", "code_count", "code_slots", "attention_heads", "proposal_count", "context_tokens", "activity_tokens", "proposal_tokens", "action_tokens", "gate_tokens", "batch_size", "global_batch_size", "epochs"]:
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ValueError(f"{name} requires a positive integer")

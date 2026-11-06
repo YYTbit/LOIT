@@ -21,7 +21,12 @@ reward from 19.2% to 33.7%.
 
 ## Algorithm Flow
 
-Scientific ideation can stall when continued reasoning revisits familiar hypotheses. Inspired by cognitive incubation, LOIT temporarily shifts computation to unrelated activities while preserving scientific evidence.
+Scientific ideation can stall when continued reasoning revisits familiar
+hypotheses. Inspired by cognitive incubation, LOIT temporarily shifts
+computation to unrelated activities while preserving scientific evidence. First,
+residual memory conditions the associative transitions. Next, return attention
+converts the terminal state into a testable proposal. Finally, a learned
+controller allocates incubation according to expected scientific gain and cost.
 
 [![Task-focused reasoning and LOIT](assets/overview.png)](assets/overview.pdf)
 
@@ -53,9 +58,16 @@ pip install -e '.[models,data]'
 
 ### Data Preparation
 
-Prepare the scientific tasks and verified training records under `data/` using the
-[record formats](docs/execution.md#scientific-records). The training commands below
-use a separate input file for each stage. Build the off-task activity pool:
+The experiments use [DiscoveryWorld](https://github.com/allenai/discoveryworld),
+[ScienceWorld](https://github.com/allenai/ScienceWorld),
+[TOMATO-Star](https://github.com/ZonglinY/MOOSE-Star),
+[LiveIdeaBench v2](https://github.com/x66ccff/liveideabench), and
+[AgentIdeaBench](https://github.com/HKUST-KnowComp/AgentIdeaBench).
+
+Prepare the permitted scientific tasks and independently verified training
+records using the [record formats](docs/execution.md#scientific-records).
+Keep model-dependent rollouts and labels under `data/<model>/`. Build the shared
+off-task activity pool:
 
 ```bash
 python -m loit prepare-activities --output data/activities.jsonl \
@@ -64,52 +76,64 @@ python -m loit prepare-activities --output data/activities.jsonl \
 
 ## Training
 
+Select a backbone:
+
+- **Qwen3-8B**: `MODEL=qwen3_8b`
+- **Llama-3.1-8B-Instruct**: `MODEL=llama_3_1_8b`
+- **DeepSeek-R1-Distill-Qwen-7B**: `MODEL=deepseek_r1_qwen_7b`
+
 Train the focused model, initialize the added modules, and continue through
 association, return, utility, and controller training:
 
 ```bash
-python -m loit train --config configs/qwen3_8b.yaml --stage focused \
-  --records data/scientific_training.jsonl --output checkpoints/focused
+python -m loit train --config "configs/${MODEL}.yaml" --stage focused \
+  --records data/scientific_training.jsonl --output "checkpoints/${MODEL}/focused"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/focused \
-  --stage initialize --records data/initialization.jsonl --output checkpoints/initialized
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/focused" \
+  --stage initialize --records "data/${MODEL}/initialization.jsonl" --output "checkpoints/${MODEL}/initialized"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/initialized \
-  --stage association --records data/verified_associations.jsonl --output checkpoints/association
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/initialized" \
+  --stage association --records "data/${MODEL}/verified_associations.jsonl" --output "checkpoints/${MODEL}/association"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/association \
-  --stage return --records data/verified_returns.jsonl --output checkpoints/return
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/association" \
+  --stage return --records "data/${MODEL}/verified_returns.jsonl" --output "checkpoints/${MODEL}/return"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/return \
-  --stage utility --records data/paired_training.jsonl --output checkpoints/utility
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/return" \
+  --stage utility --records "data/${MODEL}/paired_training.jsonl" --output "checkpoints/${MODEL}/utility"
 
-python -m loit train --config configs/qwen3_8b.yaml --checkpoint checkpoints/utility \
-  --stage controller --records data/verified_episodes.jsonl --output checkpoints/controller
+python -m loit train --config "configs/${MODEL}.yaml" --checkpoint "checkpoints/${MODEL}/utility" \
+  --stage controller --records "data/${MODEL}/verified_episodes.jsonl" --output "checkpoints/${MODEL}/controller"
 ```
+
+Add `--resume` to the same command to continue interrupted training. For
+distributed training, replace `python -m loit` with
+`accelerate launch --config_file configs/fsdp.yaml -m loit`.
 
 ## Evaluation
 
 Calibrate proposal thresholds on development records:
 
 ```bash
-python -m loit calibrate --config configs/qwen3_8b.yaml \
-  --checkpoint checkpoints/controller --gate-records data/gate_development.jsonl \
-  --paired-records data/paired_development.jsonl --output data/calibration.json
+python -m loit calibrate --config "configs/${MODEL}.yaml" \
+  --checkpoint "checkpoints/${MODEL}/controller" --gate-records "data/${MODEL}/gate_development.jsonl" \
+  --paired-records "data/${MODEL}/paired_development.jsonl" --output "data/${MODEL}/calibration.json"
 ```
 
 Generate proposals and run interactive tasks with the trained controller:
 
 ```bash
-python -m loit propose --config configs/qwen3_8b.yaml \
-  --checkpoint checkpoints/controller --calibration data/calibration.json \
+python -m loit propose --config "configs/${MODEL}.yaml" \
+  --checkpoint "checkpoints/${MODEL}/controller" --calibration "data/${MODEL}/calibration.json" \
   --tasks data/tasks.jsonl --activities data/activities.jsonl \
-  --output results/proposals.jsonl
+  --output "results/${MODEL}/proposals.jsonl"
 
-python -m loit run --config configs/qwen3_8b.yaml \
-  --checkpoint checkpoints/controller --calibration data/calibration.json \
+python -m loit run --config "configs/${MODEL}.yaml" \
+  --checkpoint "checkpoints/${MODEL}/controller" --calibration "data/${MODEL}/calibration.json" \
   --tasks data/interactive_tasks.jsonl --activities data/activities.jsonl \
-  --environments data/environments.json --output results/episodes.jsonl
+  --environments data/environments.json --output "results/${MODEL}/episodes.jsonl"
 ```
+
+Add `--resume` to continue a prediction collection from its last completed task.
 
 Configure the interactive environments and apply the benchmark scoring tools
 following the [evaluation guide](docs/execution.md#environment-integration).

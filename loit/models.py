@@ -118,7 +118,11 @@ class LOITModel(nn.Module):
                 values["inputs_embeds"] = torch.cat([latent, tokens], dim=1)
             else:
                 values["input_ids"] = input_ids
-            return self.backbone(**values)
+            # Keep fp32 master parameters while using the configured native mixed precision.
+            dtype = torch.bfloat16 if self.config.precision == "bf16" else torch.float16
+            with torch.autocast(self.device.type, dtype=dtype,
+                                enabled=self.device.type == "cuda" and self.config.precision != "no"):
+                return self.backbone(**values)
 
     def encode_memory(self, input_ids):
         states = self(input_ids).hidden_states[-1]

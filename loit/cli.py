@@ -7,8 +7,8 @@ from pathlib import Path
 import torch
 
 from .config import Config
-from .data import ActivityPool, ScientificState, prepare_activities, read_jsonl, write_jsonl
-from .storage import apply_calibration, load_language
+from .data import prepare_activities, read_jsonl, write_jsonl
+from .storage import apply_calibration, calibration_digest, load_language, write_json
 
 
 def common(parser):
@@ -29,19 +29,16 @@ def language_from_args(args):
         config.__post_init__()
     if args.device:
         config.device = args.device
+    config.seed = args.seed
     if config.device.startswith("cuda") and "LOCAL_RANK" in os.environ:
         # Assign the local GPU before loading the shared backbone in distributed launches.
         rank = int(os.environ["LOCAL_RANK"])
         torch.cuda.set_device(rank)
         config.device = f"cuda:{rank}"
+    language = load_language(config, args.checkpoint)
     if args.calibration:
-        apply_calibration(config, args.calibration)
-    torch.manual_seed(args.seed)
-    return load_language(config, args.checkpoint)
-
-
-def pool_from_args(args, config):
-    return ActivityPool(read_jsonl(args.activities), config.categories)
+        apply_calibration(language.config, args.calibration, language.checkpoint_id)
+    return language
 
 
 def main(argv=None):
@@ -64,6 +61,8 @@ def main(argv=None):
     training.add_argument("--epochs", type=int)
     training.add_argument("--batch-size", type=int)
     training.add_argument("--global-batch-size", type=int)
+    training.add_argument("--resume", action="store_true")
+    training.add_argument("--save-steps", type=int, default=500)
     for name in ["collect-associations", "propose", "run"]:
         command = commands.add_parser(name)
         common(command)
@@ -71,6 +70,7 @@ def main(argv=None):
         command.add_argument("--tasks", required=True)
         command.add_argument("--output", required=True)
         command.add_argument("--option-index", type=int)
+        command.add_argument("--resume", action="store_true")
         if name == "run":
             command.add_argument("--environments", required=True)
             command.add_argument("--max-turns", type=int, default=32)
@@ -120,7 +120,8 @@ def main(argv=None):
         return
     if args.command == "score":
         from .benchmarks import evaluate_collection
-        write_json(args.output, evaluate_collection(args.benchmark, read_jsonl(args.predictions), args.evaluator))
+        from .workflows import predictions
+        write_json(args.output, evaluate_collection(args.benchmark, predictions(args.predictions), args.evaluator))
         return
     if args.command == "attach-labels":
         from .records import attach_labels
@@ -134,53 +135,25 @@ def main(argv=None):
                                     values["transition_samples"], values["return_samples"], values.get("delta", 0.05))
         write_json(args.output, result)
         return
+    if not args.checkpoint and (args.command != "train" or args.stage != "focused"):
+        parser.error("This stage requires --checkpoint from the preceding training stage")
+    if args.command != "train" and int(os.environ.get("WORLD_SIZE", "1")) != 1:
+        parser.error("Collection and calibration use one process per output")
     language = language_from_args(args)
     if args.command == "train":
         from .training import train
-        train(language, args.stage, args.records, args.output, args.seed)
+        train(language, args.stage, args.records, args.output, args.seed,
+              resume=args.resume, save_steps=args.save_steps)
         return
     if args.command == "calibrate":
         from .calibration import gate_threshold, utility_margin
         values = {"gate_threshold": gate_threshold(read_jsonl(args.gate_records), args.acceptance_floor),
                   "utility_margin": utility_margin(language.model, read_jsonl(args.paired_records), args.coverage_quantile),
-                  "coverage_quantile": args.coverage_quantile, "acceptance_floor": args.acceptance_floor}
+                  "coverage_quantile": args.coverage_quantile, "acceptance_floor": args.acceptance_floor,
+                  "checkpoint_id": language.checkpoint_id,
+                  "configuration_digest": calibration_digest(language.config)}
         write_json(args.output, values)
         return
-    from .runtime import Incubator, run_episode
-    from .benchmarks import load_environments
-    incubator = Incubator(language, pool_from_args(args, language.config))
-    tasks = read_jsonl(args.tasks)
-    environments = load_environments(args.environments) if args.command == "run" else None
-    outputs = []
-    for index, task in enumerate(tasks):
-        state = ScientificState.from_dict(task.get("state", task))
-        if state.split == "unspecified":
-            raise ValueError("Task records require an explicit train, dev, validation, or test split")
-        if not state.task_id:
-            raise ValueError("Task records require a task identifier")
-        seed = args.seed + index
-        if args.command == "run":
-            outputs.append(run_episode(incubator, environments[task["benchmark"]], task, seed, args.max_turns,
-                                       args.position_budget, args.training_rollouts, args.option_index))
-        elif args.command == "collect-associations":
-            if state.split != "train":
-                raise ValueError("Association collection requires designated training states")
-            event = incubator.turn(state, seed, training=True, option_index=args.option_index).event
-            if event["completed_incubation"]:
-                event["split"] = state.split
-                outputs.append(event)
-        else:
-            result = incubator.turn(state, seed, option_index=args.option_index)
-            answer = language.complete("", language.config.action_tokens, seed + 1, cache=result.cache)
-            outputs.append({"task_id": state.task_id, "benchmark": task.get("benchmark"), "split": state.split,
-                            "seed": seed, "answer": answer.text, "incubation": result.event,
-                            "processed_positions": result.event["processed_positions"] + answer.processed_tokens})
-    from .records import identify_records
-    write_jsonl(args.output, identify_records(outputs))
-    print(json.dumps({"records": len(outputs), "command": args.command}))
-
-
-def write_json(path, value):
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
+    from .workflows import collect
+    count = collect(language, args)
+    print(json.dumps({"records": count, "command": args.command}))

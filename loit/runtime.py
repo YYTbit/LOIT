@@ -59,7 +59,12 @@ class Incubator:
             candidate = Proposal(**json.loads(text))
         except (ValueError, TypeError):
             return record
-        response = self._complete(costs, "screening", prompts.gate(state, candidate), self.config.gate_tokens, seed, schema=prompts.GATE_SCHEMA)
+        try:
+            response = self._complete(costs, "screening", prompts.gate(state, candidate), self.config.gate_tokens,
+                                      seed, schema=prompts.GATE_SCHEMA)
+        except ComputationBudgetExceeded:
+            record["budget_exhausted"] = True
+            return record
         try:
             scores = json.loads(response.text)
             values = [float(scores[name]) for name in prompts.GATE_SCHEMA["required"]]
@@ -142,7 +147,11 @@ class Incubator:
             try:
                 response = self._complete(costs, "return", prompts.proposal(), self.config.proposal_tokens, rng.getrandbits(63),
                                          "return", code=code, cache=cache, schema=prompts.PROPOSAL_SCHEMA)
-                event["proposals"].append(self._screen(state, response.text, rng.getrandbits(63), costs))
+                record = self._screen(state, response.text, rng.getrandbits(63), costs)
+                event["proposals"].append(record)
+                if record.get("budget_exhausted"):
+                    event["budget_exhausted"] = True
+                    break
             except ComputationBudgetExceeded:
                 event["budget_exhausted"] = True
                 break

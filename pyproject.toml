@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loit"
-version = "1.0.0"
+version = "1.1.0"
 description = "Learned Off-Task Incubation Transformer for scientific ideation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["torch>=2.6,<3", "numpy>=1.24,<3", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
-models = ["transformers==4.57.3", "accelerate>=1.5,<2", "lm-format-enforcer==0.11.3"]
+models = ["transformers==4.57.3", "accelerate==1.15.0", "lm-format-enforcer==0.11.3"]
 data = ["datasets>=3,<5"]
 
 [project.scripts]

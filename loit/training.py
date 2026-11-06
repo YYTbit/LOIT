@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import asdict
 import json
 import math
 
@@ -169,11 +170,35 @@ class Objectives(nn.Module):
         return ppo_loss(self.model, summaries, actions, old, torch.tensor(returns, device=device), masks)
 
 
-def train(language, stage, record_path, output, seed=0):
-    from accelerate import Accelerator, PartialState
-    from .storage import save_checkpoint
+def save_training_state(accelerator, output, identity, progress):
+    from .storage import write_json
+    root = Path(output) / "training_state"
+    latest = root / "latest.json"
+    previous = json.loads(latest.read_text()) if latest.is_file() else None
+    slot = 1 - previous["slot"] if previous is not None else 0
+    destination = root / str(slot)
+    # Commit the pointer after all ranks save, leaving the previous state available during the write.
+    accelerator.save_state(str(destination))
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        write_json(destination / "progress.json", {"identity": identity, **progress})
+        write_json(latest, {"slot": slot, "step": progress["step"]})
+    accelerator.wait_for_everyone()
+
+
+def train(language, stage, record_path, output, seed=0, resume=False, save_steps=500):
+    from accelerate import Accelerator, DataLoaderConfiguration, PartialState
+    from accelerate.utils import set_seed
+    from .data import stable_text
+    from .storage import file_digest, save_checkpoint, software_versions
+    if type(save_steps) is not int or save_steps < 1:
+        raise ValueError("The checkpoint interval requires a positive number of optimizer steps")
+    destination = Path(output)
+    if destination.exists() and any(destination.iterdir()) and not resume:
+        raise ValueError("An existing training output requires --resume or a new directory")
     config = language.config
-    torch.manual_seed(seed)
+    config.seed = seed
+    set_seed(seed)
     dataset = RecordDataset(record_path)
     mean, std = 0.0, 1.0
     if stage == "controller":
@@ -192,7 +217,8 @@ def train(language, stage, record_path, output, seed=0):
     cpu = torch.device(config.device).type == "cpu"
     accumulation = config.accumulation_steps(PartialState(cpu=cpu).num_processes)
     accelerator = Accelerator(cpu=cpu, gradient_accumulation_steps=accumulation,
-                              mixed_precision=config.precision if torch.cuda.is_available() else "no")
+                              dataloader_config=DataLoaderConfiguration(use_seedable_sampler=True, data_seed=seed),
+                              mixed_precision=config.precision if not cpu else "no")
     objective, optimizer, loader = accelerator.prepare(objective, optimizer, loader)
     updates = max(1, math.ceil(len(loader) / accumulation) * config.epochs)
     warmup = int(updates * config.warmup_fraction)
@@ -202,9 +228,34 @@ def train(language, stage, record_path, output, seed=0):
         progress = min(1.0, (step - warmup) / max(1, updates - warmup))
         return config.minimum_lr_ratio + (1 - config.minimum_lr_ratio) * (1 + math.cos(math.pi * progress)) / 2
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, rate)
+    accelerator.register_for_checkpointing(scheduler)
+    settings = asdict(config)
+    settings.pop("device")
+    identity = stable_text({"stage": stage, "configuration": settings, "records": file_digest(record_path),
+                           "source_checkpoint": getattr(language, "checkpoint_id", None),
+                           "processes": accelerator.num_processes, "batches": len(loader),
+                           "library_versions": software_versions()})
+    progress = {"epoch": 0, "batch": 0, "step": 0}
+    if resume:
+        latest = json.loads((destination / "training_state" / "latest.json").read_text())
+        state_directory = destination / "training_state" / str(latest["slot"])
+        saved = json.loads((state_directory / "progress.json").read_text())
+        if saved["identity"] != identity or saved["step"] != latest["step"]:
+            raise ValueError("Resume requires the same stage, records, configuration, checkpoint, and process count")
+        progress = {name: saved[name] for name in progress}
+        accelerator.load_state(str(state_directory))
+        if progress["epoch"] == config.epochs and (destination / "model.pt").is_file() and (destination / "training.json").is_file():
+            metadata = json.loads((destination / "training.json").read_text())
+            if metadata.get("completed"):
+                language.checkpoint_id = metadata["checkpoint_id"]
+                accelerator.wait_for_everyone()
+                return
     optimizer.zero_grad()
-    for epoch in range(config.epochs):
-        for records in loader:
+    for epoch in range(progress["epoch"], config.epochs):
+        loader.set_epoch(epoch)
+        skipped = progress["batch"] if epoch == progress["epoch"] else 0
+        epoch_loader = accelerator.skip_first_batches(loader, skipped) if skipped else loader
+        for batch, records in enumerate(epoch_loader, start=skipped):
             with accelerator.accumulate(objective):
                 with accelerator.autocast():
                     loss = objective(records)
@@ -219,8 +270,18 @@ def train(language, stage, record_path, output, seed=0):
                 if accelerator.sync_gradients:
                     scheduler.step()
                 optimizer.zero_grad()
+            if accelerator.sync_gradients:
+                progress = {"epoch": epoch, "batch": batch + 1, "step": progress["step"] + 1}
+                if progress["step"] % save_steps == 0 and batch + 1 < len(loader):
+                    save_training_state(accelerator, destination, identity, progress)
+                    accelerator.print(json.dumps({"stage": stage, "epoch": epoch + 1,
+                                                  "step": progress["step"], "loss": float(loss.detach())}))
+        progress.update(epoch=epoch + 1, batch=0)
+        save_training_state(accelerator, destination, identity, progress)
     state = accelerator.get_state_dict(objective)
     if accelerator.is_main_process:
         model_state = {key.removeprefix("model."): value for key, value in state.items()}
-        save_checkpoint(language, output, model_state, {"stage": stage, "return_mean": mean, "return_std": std})
+        save_checkpoint(language, output, model_state, {"stage": stage, "return_mean": mean, "return_std": std,
+                                                       "completed": True, "optimizer_steps": progress["step"],
+                                                       "records_sha256": file_digest(record_path)})
     accelerator.wait_for_everyone()

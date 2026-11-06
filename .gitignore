@@ -8,6 +8,8 @@ dist/
 data/
 checkpoints/
 results/
+outputs/
+training_state/
 external/
 video/
 *.pt
