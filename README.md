@@ -32,11 +32,15 @@ residual memory conditions the associative transitions. Next, return attention
 converts the terminal state into a testable proposal. Finally, a learned
 controller allocates incubation according to expected scientific gain and cost.
 
+The algorithm flow includes:
+
 1. **Associative transitions.** During incubation, a separate Transformer stream processes unrelated activities while attending to residual memory. Learned transitions and stochastic topic changes then evolve persistent associative codes. Memory supplies cross-attention keys and values; off-task states supply queries. Releasing the activity-local cache leaves the code as the persistent state.
 
 2. **Insight Reintegration.** Upon returning, cross-attention reintegrates the final code into focused reasoning, where an evidence gate screens hypotheses and discriminating tests. The highest-scoring admissible proposal enters the history, and the focused cache is rebuilt. An empty admissible set restores the saved history and cache.
 
 3. **Policy optimization and execution.** A learned controller selects incubation timing, duration, activity category, and memory coupling. Paired scientific gains and computation costs guide controller training. At deployment, focused continuation and incubation actions with predicted utility above a validation-selected margin $`m_v\geq0`$ are admissible. The actor selects its highest-probability admissible action, with ties favoring focused continuation. The utility estimator therefore determines admissibility, while the actor supplies learned action preferences.
+
+The LOIT pseudocode is as follows:
 
 ![Algorithm 1](assets/algorithm.png)
 
