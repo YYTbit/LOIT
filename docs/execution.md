@@ -97,7 +97,7 @@ Scientific tasks use the shared record format above. The paper evaluates [Discov
 
 For interactive execution, an environment factory implements `start(task, seed)` and returns a session with `initial_observation`, `tools`, `step(action)`, `score()`, and `close()`. A step returns an observation and a termination flag. The score comes from the environment's native evaluator. Oracle annotations stay outside agent-visible observations.
 
-The environment manifest maps task `benchmark` identifiers to importable factories and their arguments. Configure each benchmark factory in `data/environments.json` and run
+Create `data/environments.json` as a JSON object whose keys match the tasks' `benchmark` identifiers. Each value contains a `factory` string in `module:callable` form and an optional `kwargs` object. The loader imports that callable and passes `kwargs` as keyword arguments. Run interactive tasks with
 
 ```bash
 python -m loit run --config "configs/${MODEL}.yaml" \
@@ -106,7 +106,7 @@ python -m loit run --config "configs/${MODEL}.yaml" \
   --environments data/environments.json --output "results/${MODEL}/episodes.jsonl"
 ```
 
-`CommandEnvironment` connects a JSONL worker in a separate SDK environment. Its factory arguments are `command`, an argument list, and optional `timeout`. Requests contain `method` and its arguments. `reset` receives `task` and `seed` and returns `observation` and `tools`; `step` receives `action` and returns `observation`, `done`, and optional updated `tools`; `score` returns `score`. Send diagnostics to stderr. The worker releases resources after stdin closes.
+The `loit.benchmarks:CommandEnvironment` factory connects a JSONL worker in a separate SDK environment. Its `kwargs` contains `command`, an argument list, and optional `timeout`. Requests contain `method` and its arguments. `reset` receives `task` and `seed` and returns `observation` and `tools`; `step` receives `action` and returns `observation`, `done`, and optional updated `tools`; `score` returns `score`. Send diagnostics to stderr. The worker releases resources after stdin closes.
 
 The request timeout covers transmission and receipt of a complete JSON line.
 Close a session after a transport failure before starting another session.
