@@ -40,12 +40,12 @@ To allocate computation when progress stalls, an incubation controller reads
 
 ```math
 \begin{aligned}
-u_t=[n_t,\rho_t,b_t,\operatorname{Mean}(M_t)],
+u_t=[n_t,\rho_t,b_t,\mathrm{Mean}(M_t)],
 \end{aligned}
 \tag{1}
 ```
 
-where $`n_t`$ measures observation novelty, $`\rho_t`$ hypothesis and action repetition, $`b_t`$ the remaining budget fraction, and $`\operatorname{Mean}(M_t)`$ the mean of the residual-memory slots defined below. These features use the agent-visible prefix.
+where $`n_t`$ measures observation novelty, $`\rho_t`$ hypothesis and action repetition, $`b_t`$ the remaining budget fraction, and $`\mathrm{Mean}(M_t)`$ the mean of the residual-memory slots defined below. These features use the agent-visible prefix.
 
 The controller chooses from $`\mathcal O=\{0\}\cup(\mathcal K\times\mathcal A\times\mathcal D)`$, where $`0`$ denotes focused continuation, $`\mathcal K`$ durations, $`\mathcal A\subseteq[0,1]`$ coupling strengths, and $`\mathcal D`$ activity categories. Action $`o=(K,\alpha,d)`$ runs $`K`$ association steps at coupling $`\alpha`$ in category $`d`$, preserving the history and environment. A development-selected rate $`\varepsilon\in(0,1)`$ controls topic changes.
 
@@ -63,7 +63,7 @@ where $`R_{\mathrm{sci}}`$ measures task progress, $`R_{\mathrm{idea}}`$ trainin
 
 **Residual memory.**
 
-To preserve evidence while limiting repeated hypothesis narratives, the deterministic operator $`\operatorname{Canon}`$ serializes the question and observations as $`B_t=\operatorname{Canon}(Q_t,E_t)`$. A trainable resampler $`C_\psi`$, with parameters $`\psi`$, compresses backbone token representations $`H_\omega`$ into
+To preserve evidence while limiting repeated hypothesis narratives, the deterministic operator $`\mathrm{Canon}`$ serializes the question and observations as $`B_t=\mathrm{Canon}(Q_t,E_t)`$. A trainable resampler $`C_\psi`$, with parameters $`\psi`$, compresses backbone token representations $`H_\omega`$ into
 
 ```math
 \begin{aligned}
@@ -93,13 +93,13 @@ Here $`T^\omega_\ell`$ is Transformer block $`\ell`$, $`H^o_{k,\ell}`$ its off-t
 
 ```math
 \begin{aligned}
-\widetilde z_{k+1}\sim\operatorname{Cat}\!\left(
-\operatorname{softmax}(W_z\operatorname{Pool}(H^o_{k,L})+b_z)\right),
+\widetilde z_{k+1}\sim\mathrm{Cat}\!\left(
+\mathrm{softmax}(W_z\mathrm{Pool}(H^o_{k,L})+b_z)\right),
 \end{aligned}
 \tag{5}
 ```
 
-Here $`\operatorname{Cat}`$ denotes categorical sampling, $`L`$ the backbone depth, $`\operatorname{Pool}`$ response-state pooling, and $`W_z,b_z`$ the transition-head parameters. Memory supplies cross-attention keys and values; off-task states supply queries.
+Here $`\mathrm{Cat}`$ denotes categorical sampling, $`L`$ the backbone depth, $`\mathrm{Pool}`$ response-state pooling, and $`W_z,b_z`$ the transition-head parameters. Memory supplies cross-attention keys and values; off-task states supply queries.
 
 **Topic changes.**
 
