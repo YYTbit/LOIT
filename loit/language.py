@@ -30,12 +30,13 @@ class Completion:
 class LanguageModel:
     def __init__(self, model, tokenizer):
         self.model, self.tokenizer, self.config = model, tokenizer, model.config
+        self.reasoning_end = tokenizer.get_vocab().get("</think>")
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
 
     def ids(self, text, reserve=0, chat=True):
         if chat and self.tokenizer.chat_template:
-            values = self.tokenizer.apply_chat_template([{"role": "user", "content": text}], tokenize=True, add_generation_prompt=True, enable_thinking=False)
+            values = self.tokenizer.apply_chat_template([{"role": "user", "content": text}], tokenize=True, add_generation_prompt=True)
         else:
             values = self.tokenizer.encode(text, add_special_tokens=chat)
         limit = self.config.context_tokens - reserve
@@ -114,7 +115,11 @@ class LanguageModel:
             output = self.model(next_token, branch, memory, code, coupling, values, use_cache=True)
             values, logits = output.past_key_values, output.logits[0, -1]
             processed += 1
-        return Completion(self.tokenizer.decode(response, skip_special_tokens=True), prefix, response, probability, processed)
+        answer = response
+        if self.reasoning_end is not None and self.reasoning_end in response:
+            end = len(response) - response[::-1].index(self.reasoning_end)
+            answer = response[end:]
+        return Completion(self.tokenizer.decode(answer, skip_special_tokens=True), prefix, response, probability, processed)
 
     def continuation_loss(self, prompt, response, branch="focused", memory=None, code=None, coupling=0):
         target = self.tokenizer.encode(response, add_special_tokens=False)

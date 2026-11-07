@@ -86,6 +86,7 @@ def apply_calibration(config, path, checkpoint_id=None):
 
 def calibration_digest(config):
     values = asdict(config)
+    values["chat_template"] = "native"
     for name in ["device", "seed", "gate_threshold", "utility_margin", "learning_rate", "backbone_learning_rate",
                  "weight_decay", "adam_betas", "gradient_clip", "warmup_fraction", "minimum_lr_ratio", "epochs",
                  "batch_size", "global_batch_size", "ppo_clip", "entropy_weight", "cost_regression_weight"]:
@@ -103,7 +104,7 @@ def file_digest(path):
 
 def software_versions():
     versions = {}
-    for name in ["torch", "transformers", "accelerate", "numpy", "lm-format-enforcer"]:
+    for name in ["loit", "torch", "transformers", "accelerate", "numpy", "lm-format-enforcer"]:
         try:
             versions[name] = version(name)
         except PackageNotFoundError:
