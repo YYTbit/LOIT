@@ -21,16 +21,16 @@ reward from 19.2% to 33.7%.
 
 ## Algorithm Flow
 
+[![Task-focused reasoning and LOIT](assets/overview.png)](assets/overview.pdf)
+
+**Figure 1.** Task-focused reasoning and LOIT on DiscoveryWorld’s Plant Nutrients Challenge. In seed 1, growth requires low titanium together with medium barium. The three observations challenge a single-factor explanation. A color-mixing instruction from Dolly 15k provides the off-task input. Memory cross-attention retains the scientific observations, the transition head updates an associative code, and return cross-attention carries this code into a proposal for separate and joint nutrient tests.
+
 Scientific ideation can stall when continued reasoning revisits familiar
 hypotheses. Inspired by cognitive incubation, LOIT temporarily shifts
 computation to unrelated activities while preserving scientific evidence. First,
 residual memory conditions the associative transitions. Next, return attention
 converts the terminal state into a testable proposal. Finally, a learned
 controller allocates incubation according to expected scientific gain and cost.
-
-[![Task-focused reasoning and LOIT](assets/overview.png)](assets/overview.pdf)
-
-**Figure 1.** Task-focused reasoning and LOIT on DiscoveryWorld’s Plant Nutrients Challenge. In seed 1, growth requires low titanium together with medium barium. The three observations challenge a single-factor explanation. A color-mixing instruction from Dolly 15k provides the off-task input. Memory cross-attention retains the scientific observations, the transition head updates an associative code, and return cross-attention carries this code into a proposal for separate and joint nutrient tests.
 
 1. **Associative transitions.** During incubation, a separate Transformer stream processes unrelated activities while attending to residual memory. Learned transitions and stochastic topic changes then evolve persistent associative codes. Memory supplies cross-attention keys and values; off-task states supply queries. Releasing the activity-local cache leaves the code as the persistent state.
 
