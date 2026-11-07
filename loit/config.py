@@ -39,6 +39,7 @@ class Config:
     action_tokens: int = 128
     gate_tokens: int = 96
     temperature: float = 1.0
+    generation: dict = field(default_factory=dict)
     grammar: bool = True
     gate_threshold: float | None = None
     utility_margin: float | None = None
@@ -65,21 +66,62 @@ class Config:
     def __post_init__(self):
         if self.precision not in ["no", "fp16", "bf16"]:
             raise ValueError("Precision requires no, fp16, or bf16")
+        if not isinstance(self.generation, dict):
+            raise ValueError("Native generation settings require a mapping")
+        allowed = {"do_sample", "temperature", "top_p", "top_k", "min_p", "typical_p",
+                   "epsilon_cutoff", "eta_cutoff", "repetition_penalty", "no_repeat_ngram_size"}
+        if set(self.generation) - allowed:
+            raise ValueError("Generation overrides require supported native sampling settings")
+        for name, value in self.generation.items():
+            if name == "do_sample":
+                if type(value) is not bool:
+                    raise ValueError("do_sample requires a boolean")
+                continue
+            if value is None:
+                continue
+            if type(value) not in [int, float] or not math.isfinite(value):
+                raise ValueError(f"Generation setting {name} requires a finite number")
+            if name in ["top_k", "no_repeat_ngram_size"]:
+                valid = type(value) is int and value >= 0
+            elif name in ["temperature", "repetition_penalty"]:
+                valid = value > 0
+            elif name in ["epsilon_cutoff", "eta_cutoff"]:
+                valid = 0 <= value < 1
+            else:
+                valid = 0 <= value <= 1
+            if not valid:
+                raise ValueError(f"Generation setting {name} is outside its native range")
         if type(self.seed) is not int or not 0 <= self.seed < 2 ** 32:
             raise ValueError("The run seed requires an integer in [0, 2**32)")
-        for name in ["memory_slots", "code_count", "code_slots", "attention_heads", "proposal_count", "context_tokens", "activity_tokens", "proposal_tokens", "action_tokens", "gate_tokens", "batch_size", "global_batch_size", "epochs"]:
+        for name in ["memory_slots", "code_count", "code_slots", "attention_heads", "proposal_count", "context_tokens", "activity_tokens", "proposal_tokens", "action_tokens", "gate_tokens", "batch_size", "global_batch_size", "epochs", "controller_hidden"]:
             if type(getattr(self, name)) is not int or getattr(self, name) < 1:
                 raise ValueError(f"{name} requires a positive integer")
         if not self.categories or len(set(self.categories)) != len(self.categories):
             raise ValueError("Activity categories require distinct names")
+        if any(not isinstance(category, str) or not category.strip() for category in self.categories):
+            raise ValueError("Activity categories require nonempty strings")
         if not self.durations or len(set(self.durations)) != len(self.durations) or any(type(k) is not int or k < 1 for k in self.durations):
             raise ValueError("Incubation durations require positive integers")
         if not self.couplings or any(not 0 <= a <= 1 for a in self.couplings):
             raise ValueError("Coupling values require the interval [0, 1]")
+        if len(set(self.couplings)) != len(self.couplings):
+            raise ValueError("Coupling values require distinct choices")
         if not 0 <= self.topic_change <= 1 or not 0 <= self.return_strength <= 1:
             raise ValueError("Topic-change and return strengths require [0, 1]")
         if any(not math.isfinite(value) for value in [self.temperature, self.cost_scale, self.cost_weight, self.idea_weight]) or self.temperature <= 0 or self.cost_scale <= 0 or self.cost_weight < 0 or self.idea_weight < 0:
             raise ValueError("Temperature, cost scale, and reward weights are invalid")
+        for name in ["learning_rate", "backbone_learning_rate", "gradient_clip"]:
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} requires a positive finite value")
+        for name in ["weight_decay", "entropy_weight", "cost_regression_weight"]:
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} requires a nonnegative finite value")
+        if len(self.adam_betas) != 2 or any(not math.isfinite(value) or not 0 <= value < 1 for value in self.adam_betas):
+            raise ValueError("AdamW requires two finite decay rates in [0, 1)")
+        if not 0 <= self.warmup_fraction < 1 or not 0 <= self.minimum_lr_ratio <= 1:
+            raise ValueError("The warmup fraction and cosine floor are invalid")
         if len(self.gate_weights) != 4 or min(self.gate_weights) < 0 or not math.isclose(sum(self.gate_weights), 1):
             raise ValueError("Four nonnegative gate weights require unit sum")
         if self.gate_threshold is not None and not 0 <= self.gate_threshold <= 1:

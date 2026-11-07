@@ -5,6 +5,7 @@ import torch
 from torch.nn import functional as F
 
 from . import prompts
+from .decoding import SamplingPolicy, StructuredOutput, association_scores, final_answer, native_reasoning_prefix, supervised_response
 
 
 class ComputationBudgetExceeded(RuntimeError):
@@ -25,12 +26,15 @@ class Completion:
     token_ids: list[int]
     log_probability: float
     processed_tokens: int
+    finish_reason: str = "length"
+    reasoning_complete: bool = True
 
 
 class LanguageModel:
     def __init__(self, model, tokenizer):
         self.model, self.tokenizer, self.config = model, tokenizer, model.config
         self.reasoning_end = tokenizer.get_vocab().get("</think>")
+        self._grammar_tokens = None
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
 
@@ -40,8 +44,10 @@ class LanguageModel:
         else:
             values = self.tokenizer.encode(text, add_special_tokens=chat)
         limit = self.config.context_tokens - reserve
-        if limit < 1 or not values:
-            raise ValueError("The context budget requires a nonempty prompt and reserved response space")
+        if not values:
+            raise ValueError("The context budget requires a nonempty prompt")
+        if limit < 1:
+            raise ValueError("The context budget cannot reserve this continuation; adjust generation limits while retaining the question")
         if len(values) > limit:
             raise ValueError("The prompt exceeds the context budget; shorten the recorded history while retaining the question")
         return values
@@ -56,24 +62,30 @@ class LanguageModel:
     @torch.no_grad()
     def prefill(self, state):
         self.model.backbone.eval()
-        values = self.ids(prompts.focused(state), reserve=self.config.proposal_tokens + 128)
+        values = self.focused_ids(state)
         output = self.model(self.tensor(values), use_cache=True)
         return FocusedCache(output.past_key_values, output.logits[0, -1].detach(), values)
+
+    def focused_ids(self, state):
+        suffix = len(self.ids(prompts.proposal(), chat=False))
+        reserve = max(self.config.action_tokens, suffix + self.config.proposal_tokens)
+        return self.ids(prompts.focused(state), reserve=reserve)
 
     def grammar(self, schema):
         if schema is None or not self.config.grammar:
             return None
-        from lmformatenforcer import JsonSchemaParser
-        from lmformatenforcer.integrations.transformers import build_transformers_prefix_allowed_tokens_fn
-        return build_transformers_prefix_allowed_tokens_fn(self.tokenizer, JsonSchemaParser(schema))
+        from lmformatenforcer.integrations.transformers import build_token_enforcer_tokenizer_data
+        if self._grammar_tokens is None:
+            self._grammar_tokens = build_token_enforcer_tokenizer_data(self.tokenizer)
+        return StructuredOutput(self.tokenizer, self._grammar_tokens, schema)
 
     @torch.no_grad()
     def complete(self, prompt, max_tokens, seed=0, branch="focused", memory=None, code=None, coupling=0, cache=None, schema=None, position_budget=None):
-        from transformers.generation.stopping_criteria import EosTokenCriteria
-
         self.model.backbone.eval()
         if max_tokens < 1:
             raise ValueError("Generation requires a positive response budget")
+        if branch == "association" and schema is not None and self.config.grammar:
+            raise ValueError("Association sampling requires the same full-support response policy used for replay")
         latent = self.config.code_slots if branch == "association" else 0
         prefix = self.ids(prompt, reserve=max_tokens + latent, chat=cache is None) if prompt else []
         if position_budget is not None:
@@ -92,37 +104,32 @@ class LanguageModel:
             raise ValueError("Generation requires a prompt or a focused cache")
         generator = torch.Generator(device=self.model.device).manual_seed(seed)
         grammar = self.grammar(schema)
+        history = (cache.prefix_ids if cache is not None else []) + prefix
+        policy = SamplingPolicy(self.model.backbone, self.config, branch, len(history), max_tokens,
+                                grammar, self.model.device, self.tokenizer)
         response, probability = [], 0.0
         processed = len(prefix) + latent
-        eos = getattr(self.model.backbone.generation_config, "eos_token_id", None)
-        stopping = EosTokenCriteria(self.tokenizer.eos_token_id if eos is None else eos)
+        finish_reason = "length"
         for step in range(max_tokens):
-            logits = logits.float() / self.config.temperature
-            if grammar is not None:
-                allowed = grammar(0, self.tensor(prefix + response)[0])
-                masked = torch.full_like(logits, -torch.inf)
-                masked[allowed] = logits[allowed]
-                logits = masked
-            if not torch.isfinite(logits).any():
-                raise RuntimeError("Generation has no admissible vocabulary token")
-            log_probs = logits.log_softmax(-1)
-            token = int(torch.multinomial(log_probs.exp(), 1, generator=generator))
+            scores = policy.scores(self.tensor(history + response), logits)
+            token, log_probability = policy.draw(scores, generator)
             response.append(token)
-            probability += float(log_probs[token])
+            probability += log_probability
             next_token = self.tensor([token])
-            if stopping(next_token, None).item() or step == max_tokens - 1:
+            if policy.stopping(self.tensor(history + response), None).item():
+                finish_reason = "length" if step == max_tokens - 1 and token not in policy.eos else "stop"
+                break
+            if step == max_tokens - 1:
                 break
             output = self.model(next_token, branch, memory, code, coupling, values, use_cache=True)
             values, logits = output.past_key_values, output.logits[0, -1]
             processed += 1
-        answer = response
-        if self.reasoning_end is not None and self.reasoning_end in response:
-            end = len(response) - response[::-1].index(self.reasoning_end)
-            answer = response[end:]
-        return Completion(self.tokenizer.decode(answer, skip_special_tokens=True), prefix, response, probability, processed)
+        text, reasoning_complete = final_answer(self.tokenizer, response, self.reasoning_end,
+                                                native_reasoning_prefix(self.tokenizer))
+        return Completion(text, prefix, response, probability, processed, finish_reason, reasoning_complete)
 
     def continuation_loss(self, prompt, response, branch="focused", memory=None, code=None, coupling=0):
-        target = self.tokenizer.encode(response, add_special_tokens=False)
+        target = self.tokenizer.encode(supervised_response(self.tokenizer, response), add_special_tokens=False)
         eos = self.tokenizer.eos_token_id
         if isinstance(eos, int):
             target.append(eos)
@@ -138,7 +145,7 @@ class LanguageModel:
     def return_loss(self, state, code, response):
         # The scientific prefix is encoded without return attention, matching the saved focused cache.
         cache = self.prefill(state)
-        target = self.tokenizer.encode(response, add_special_tokens=False)
+        target = self.tokenizer.encode(supervised_response(self.tokenizer, response), add_special_tokens=False)
         if isinstance(self.tokenizer.eos_token_id, int):
             target.append(self.tokenizer.eos_token_id)
         prefix = self.ids(prompts.proposal(), reserve=len(target), chat=False)
@@ -153,7 +160,7 @@ class LanguageModel:
             raise ValueError("The recorded activity continuation is empty or exceeds the context budget")
         output = self.model(self.tensor(prompt_ids + response_ids), "association", memory, previous_code, coupling)
         start = self.config.code_slots + len(prompt_ids)
-        logits = output.logits[0, start - 1:start - 1 + len(response_ids)].float() / self.config.temperature
+        logits = association_scores(output.logits[0, start - 1:start - 1 + len(response_ids)], self.config.temperature)
         selected = logits.log_softmax(-1).gather(-1, self.tensor(response_ids)[0, :, None]).sum()
         # Pool response positions; prompt and latent-prefix states are excluded.
         pooled = output.hidden_states[-1][:, start:start + len(response_ids)].float().mean(dim=1)

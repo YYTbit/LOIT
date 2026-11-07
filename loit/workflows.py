@@ -101,6 +101,8 @@ def collect(language, args):
             answer = language.complete("", language.config.action_tokens, seed + 1, cache=result.cache)
             record = {"task_id": state.task_id, "benchmark": task.get("benchmark"), "split": state.split,
                       "seed": seed, "answer_seed": seed + 1, "answer": answer.text, "incubation": result.event,
+                      "finish_reason": answer.finish_reason, "reasoning_complete": answer.reasoning_complete,
+                      "prompt_ids": answer.prompt_ids, "response_ids": answer.token_ids,
                       "processed_positions": result.event["processed_positions"] + answer.processed_tokens}
         run.commit(index, record)
     run.finish()

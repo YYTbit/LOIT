@@ -37,7 +37,8 @@ def language_from_args(args):
         config.device = f"cuda:{rank}"
     language = load_language(config, args.checkpoint)
     if args.calibration:
-        apply_calibration(language.config, args.calibration, language.checkpoint_id)
+        apply_calibration(language.config, args.calibration, language.checkpoint_id,
+                          language.model.backbone.generation_config)
     return language
 
 
@@ -151,7 +152,7 @@ def main(argv=None):
                   "utility_margin": utility_margin(language.model, read_jsonl(args.paired_records), args.coverage_quantile),
                   "coverage_quantile": args.coverage_quantile, "acceptance_floor": args.acceptance_floor,
                   "checkpoint_id": language.checkpoint_id,
-                  "configuration_digest": calibration_digest(language.config)}
+                  "configuration_digest": calibration_digest(language.config, language.model.backbone.generation_config)}
         write_json(args.output, values)
         return
     from .workflows import collect

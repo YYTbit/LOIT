@@ -65,6 +65,8 @@ class Incubator:
         except ComputationBudgetExceeded:
             record["budget_exhausted"] = True
             return record
+        record.update(gate_prompt_ids=response.prompt_ids, gate_response_ids=response.token_ids,
+                      gate_finish_reason=response.finish_reason, gate_reasoning_complete=response.reasoning_complete)
         try:
             scores = json.loads(response.text)
             values = [float(scores[name]) for name in prompts.GATE_SCHEMA["required"]]
@@ -83,7 +85,7 @@ class Incubator:
         rng = random.Random(seed)
         costs = CostLedger(limit=position_budget)
         if position_budget is not None:
-            prefix_cost = len(self.language.ids(prompts.focused(state), reserve=self.config.proposal_tokens + 128)) if cache is None else 0
+            prefix_cost = len(self.language.focused_ids(state)) if cache is None else 0
             memory_cost = len(self.language.ids(state.canonical(), reserve=self.config.code_slots))
             # Check both preparation passes before consuming any part of the remaining budget.
             costs.require(prefix_cost + memory_cost)
@@ -151,6 +153,8 @@ class Incubator:
                                          "return", code=code, cache=cache, schema=prompts.PROPOSAL_SCHEMA)
                 record = self._screen(state, response.text, rng.getrandbits(63), costs)
                 record["return_seed"] = return_seed
+                record.update(return_prompt_ids=response.prompt_ids, return_response_ids=response.token_ids,
+                              return_finish_reason=response.finish_reason, return_reasoning_complete=response.reasoning_complete)
                 event["proposals"].append(record)
                 if record.get("budget_exhausted"):
                     event["budget_exhausted"] = True
@@ -165,7 +169,7 @@ class Incubator:
             index, best = max(admissible, key=lambda pair: pair[1]["gate_score"])
             updated = deepcopy(state)
             updated.proposals.append(best["proposal"])
-            costs.require(len(self.language.ids(prompts.focused(updated), reserve=self.config.proposal_tokens + 128)))
+            costs.require(len(self.language.focused_ids(updated)))
             restored = self.language.prefill(updated)
             costs.add("rebuild", len(restored.prefix_ids))
             event["selected_proposal"] = index
@@ -204,6 +208,13 @@ def run_episode(incubator, environment, task, seed=0, max_turns=32, position_bud
             action = incubator.language.complete("", incubator.config.action_tokens, action_seed, cache=result.cache,
                                                  position_budget=position_budget - total)
             total += action.processed_tokens
+            event.update(action_positions=action.processed_tokens, action_seed=action_seed,
+                         action_finish_reason=action.finish_reason, reasoning_complete=action.reasoning_complete,
+                         action_prompt_ids=action.prompt_ids, action_response_ids=action.token_ids)
+            if not action.reasoning_complete:
+                event["action"] = None
+                events.append(event)
+                break
             observation, done = session.step(action.text)
             state.actions.append(action.text)
             state.observations.append(observation)

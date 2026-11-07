@@ -53,6 +53,16 @@ the input checkpoint supplies its learned weights and requires a matching model
 architecture. Model revisions, tokenizer files, and the native generation
 configuration are retained with each exported checkpoint.
 
+Scientific decoding uses the backbone's native generation configuration. The
+optional `generation` mapping accepts native sampling settings, including
+`do_sample`, `temperature`, `top_p`, `top_k`, and `repetition_penalty`. The
+top-level `temperature` controls full-support association sampling and its
+training likelihood. Response limits are set by `activity_tokens`,
+`proposal_tokens`, `action_tokens`, and `gate_tokens`. Structured decoding
+preserves the native reasoning prefix and applies the proposal or gate schema
+to the final response. Generated reasoning tokens remain part of the trajectory
+and computation count.
+
 Add `--resume` to the same training command to restore the model, optimizer,
 scheduler, random generators, and data position through Accelerate. Resumption
 requires the same training records, stage, configuration, source checkpoint, and
@@ -87,8 +97,8 @@ python -m loit calibrate --config "configs/${MODEL}.yaml" \
 
 Gate records contain a development split, `gate_score`, and an independent binary `verified` label. The selected threshold maximizes confirmation rate subject to the requested acceptance floor. Paired development records use the utility-training schema. The margin is the requested empirical quantile of absolute utility errors. These are development estimates. Deployment admits focused continuation and incubation options with utility strictly above the selected margin, then selects the actor's highest-probability admissible option.
 
-Calibration is associated with the checkpoint and the proposal, gate, and utility
-settings used to fit it. Generate a calibration file for the final controller
+Calibration is associated with the checkpoint, native generation configuration,
+and the proposal, gate, and utility settings used to fit it. Generate a calibration file for the final controller
 checkpoint before deployment.
 
 ## Environment integration

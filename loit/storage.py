@@ -72,11 +72,11 @@ def save_checkpoint(language, output, state=None, metadata=None):
     language.checkpoint_id = record["checkpoint_id"]
 
 
-def apply_calibration(config, path, checkpoint_id=None):
+def apply_calibration(config, path, checkpoint_id=None, generation=None):
     values = json.loads(Path(path).read_text(encoding="utf-8"))
     if checkpoint_id is not None and values.get("checkpoint_id") != checkpoint_id:
         raise ValueError("Calibration requires the checkpoint used to fit its thresholds")
-    if checkpoint_id is not None and values.get("configuration_digest") != calibration_digest(config):
+    if checkpoint_id is not None and values.get("configuration_digest") != calibration_digest(config, generation):
         raise ValueError("Calibration requires the same proposal, gate, and utility configuration")
     config.gate_threshold = float(values["gate_threshold"])
     config.utility_margin = float(values["utility_margin"])
@@ -84,9 +84,14 @@ def apply_calibration(config, path, checkpoint_id=None):
     return config
 
 
-def calibration_digest(config):
+def calibration_digest(config, generation=None):
     values = asdict(config)
-    values["chat_template"] = "native"
+    values["chat_template"] = "native-structured-v2"
+    if generation is not None:
+        native = generation.to_dict()
+        for name in ["transformers_version", "_from_model_config"]:
+            native.pop(name, None)
+        values["native_generation"] = native
     for name in ["device", "seed", "gate_threshold", "utility_margin", "learning_rate", "backbone_learning_rate",
                  "weight_decay", "adam_betas", "gradient_clip", "warmup_fraction", "minimum_lr_ratio", "epochs",
                  "batch_size", "global_batch_size", "ppo_clip", "entropy_weight", "cost_regression_weight"]:
